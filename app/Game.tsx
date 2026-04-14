@@ -19,11 +19,187 @@ export default function Game() {
     let tick = 0;
 
     // ============ GAME STATE ============
-    type GameState = "playing" | "levelComplete" | "gameOver" | "victory";
+    type GameState = "playing" | "levelComplete" | "gameOver" | "victory" | "portalWorld";
     let gameState: GameState = "playing";
     let level = 1;
     let score = 0;
     let levelTimer = 0;
+
+    // ============ PORTAL WORLD CHALLENGE ============
+    interface PortalChallenge {
+      world: { col: string; name: string; bg: string; emoji: string };
+      type: string; // "shooting" | "agility" | "math" | ...
+      question: string;
+      choices: string[];
+      answer: string;
+      reward: { type: string; label: string };
+      timeLimit: number; // ticks remaining
+      failed: boolean;
+    }
+    let activeChallenge: PortalChallenge | null = null;
+
+    const PORTAL_WORLDS = [
+      { col: "#00ffff", name: "Ice World", bg: "#0a2a4a", emoji: "\u2744\uFE0F" },
+      { col: "#ff4400", name: "Fire World", bg: "#4a1a0a", emoji: "\uD83D\uDD25" },
+      { col: "#880000", name: "Doom World", bg: "#2a0a0a", emoji: "\uD83D\uDC80" },
+      { col: "#4400aa", name: "Dark World", bg: "#0a0a2a", emoji: "\uD83C\uDF11" },
+      { col: "#0066ff", name: "Water World", bg: "#0a1a3a", emoji: "\uD83C\uDF0A" },
+      { col: "#ffffff", name: "Cloud World", bg: "#2a3a4a", emoji: "\u2601\uFE0F" },
+      { col: "#88ff88", name: "Ghost World", bg: "#1a2a1a", emoji: "\uD83D\uDC7B" },
+      { col: "#ffaa00", name: "Kitchen World", bg: "#3a2a1a", emoji: "\uD83C\uDF73" },
+    ];
+
+    // Challenge generators per type
+    function makeShootingChallenge(): { question: string; choices: string[]; answer: string } {
+      const targets = Math.floor(Math.random() * 5) + 3;
+      const hits = Math.floor(Math.random() * (targets - 1)) + 1;
+      const missed = targets - hits;
+      return { question: `You shot ${targets} arrows! ${hits} hit the target. How many missed?`, choices: [String(missed), String(missed + 1), String(missed - 1 < 0 ? 0 : missed - 1), String(targets)], answer: String(missed) };
+    }
+    function makeAgilityChallenge(): { question: string; choices: string[]; answer: string } {
+      const scenarios = [
+        { q: "A boulder is rolling toward you! Which way do you dodge?", ch: ["Jump left!", "Jump right!", "Stand still!", "Duck!"], ans: "Jump left!" },
+        { q: "You're crossing a river! How do you get across?", ch: ["Swim fast!", "Find stepping stones", "Build a raft", "Fly over"], ans: "Find stepping stones" },
+        { q: "A pit trap opens beneath you! What do you grab?", ch: ["The vine!", "The ledge!", "Your hat!", "Nothing!"], ans: "The vine!" },
+        { q: "Lava is rising! Where do you climb?", ch: ["The tall rock!", "The ladder!", "The tree!", "Stay put!"], ans: "The tall rock!" },
+        { q: "An avalanche! Which way do you run?", ch: ["Sideways!", "Downhill!", "Straight at it!", "In circles!"], ans: "Sideways!" },
+        { q: "A bridge is collapsing! What do you do?", ch: ["Sprint across!", "Turn back!", "Jump off!", "Walk slowly!"], ans: "Sprint across!" },
+      ];
+      return scenarios[Math.floor(Math.random() * scenarios.length)];
+    }
+    function makeMathChallenge(): { question: string; choices: string[]; answer: string } {
+      const type = Math.floor(Math.random() * 5);
+      if (type === 0) {
+        const a = Math.floor(Math.random() * 50) + 10, b = Math.floor(Math.random() * 50) + 10;
+        const ans = a + b;
+        return { question: `What is ${a} + ${b}?`, choices: [String(ans), String(ans + 3), String(ans - 2), String(ans + 7)], answer: String(ans) };
+      } else if (type === 1) {
+        const a = Math.floor(Math.random() * 40) + 20, b = Math.floor(Math.random() * 15) + 5;
+        const ans = a - b;
+        return { question: `What is ${a} - ${b}?`, choices: [String(ans), String(ans + 4), String(ans - 3), String(ans + 1)], answer: String(ans) };
+      } else if (type === 2) {
+        const a = Math.floor(Math.random() * 9) + 2, b = Math.floor(Math.random() * 9) + 2;
+        const ans = a * b;
+        return { question: `What is ${a} \u00D7 ${b}?`, choices: [String(ans), String(ans + a), String(ans - b), String(ans + 5)], answer: String(ans) };
+      } else if (type === 3) {
+        const b = Math.floor(Math.random() * 8) + 2, ans = Math.floor(Math.random() * 10) + 2;
+        const a = b * ans;
+        return { question: `What is ${a} \u00F7 ${b}?`, choices: [String(ans), String(ans + 1), String(ans - 1), String(ans + 3)], answer: String(ans) };
+      } else {
+        const whole = Math.floor(Math.random() * 5) + 1;
+        const frac = [["1/4","1/2","3/4","1/3"],["1/2","1/4","3/4","2/3"],["3/4","1/2","1/4","1/3"]][Math.floor(Math.random() * 3)];
+        return { question: `Which is the biggest fraction?`, choices: [...frac], answer: frac.includes("3/4") ? "3/4" : frac.includes("2/3") ? "2/3" : "1/2" };
+      }
+    }
+    // New challenge types for levels 4+
+    function makeRiddleChallenge(): { question: string; choices: string[]; answer: string } {
+      const riddles = [
+        { q: "I have hands but can't clap. What am I?", ch: ["A clock!", "A glove!", "A tree!", "A book!"], ans: "A clock!" },
+        { q: "I have a head and a tail but no body. What am I?", ch: ["A coin!", "A snake!", "A fish!", "A drum!"], ans: "A coin!" },
+        { q: "What has keys but no locks?", ch: ["A piano!", "A map!", "A cage!", "A door!"], ans: "A piano!" },
+        { q: "What gets wetter the more it dries?", ch: ["A towel!", "Rain!", "A sponge!", "Ice!"], ans: "A towel!" },
+        { q: "What can you catch but not throw?", ch: ["A cold!", "A ball!", "A fish!", "A star!"], ans: "A cold!" },
+        { q: "I'm tall when young, short when old. What am I?", ch: ["A candle!", "A tree!", "A person!", "A tower!"], ans: "A candle!" },
+      ];
+      return riddles[Math.floor(Math.random() * riddles.length)];
+    }
+    function makeMemoryChallenge(): { question: string; choices: string[]; answer: string } {
+      const items = ["sword", "shield", "potion", "arrow", "gem", "key", "crown", "scroll"];
+      const pick = items.sort(() => Math.random() - 0.5).slice(0, 3);
+      const ask = pick[Math.floor(Math.random() * pick.length)];
+      return { question: `Remember: ${pick.join(", ")}. Was "${ask}" in the list?`, choices: ["Yes!", "No!", "Maybe!", "I forgot!"], answer: "Yes!" };
+    }
+    function makeSpeedChallenge(): { question: string; choices: string[]; answer: string } {
+      const scenarios = [
+        { q: "QUICK! A dragon breathes fire! What's fireproof?", ch: ["Stone shield!", "Paper hat!", "Wooden sword!", "Ice cream!"], ans: "Stone shield!" },
+        { q: "FAST! Zombies are coming! What stops them?", ch: ["Run away!", "Hug them!", "Take a nap!", "Sit down!"], ans: "Run away!" },
+        { q: "HURRY! The castle is flooding! Grab what?", ch: ["A boat!", "A sandwich!", "A pillow!", "A book!"], ans: "A boat!" },
+        { q: "NOW! A ghost appears! What scares ghosts?", ch: ["Bright light!", "A whisper!", "Dancing!", "Sleeping!"], ans: "Bright light!" },
+      ];
+      return scenarios[Math.floor(Math.random() * scenarios.length)];
+    }
+    function makeCodeChallenge(): { question: string; choices: string[]; answer: string } {
+      const codes = [
+        { q: "Crack the code! 1=A, 2=B, 3=C. What is 3-1-2?", ch: ["CAB!", "ABC!", "BAC!", "CBA!"], ans: "CAB!" },
+        { q: "What comes next? 2, 4, 6, 8, ___", ch: ["10", "9", "12", "11"], ans: "10" },
+        { q: "Pattern: \u2605\u25CB\u2605\u25CB\u2605___", ch: ["\u25CB", "\u2605", "\u25B3", "\u25A0"], ans: "\u25CB" },
+        { q: "Unscramble: DONHSU = ?", ch: ["HUDSON!", "HOUNDS!", "DUNHOS!", "SHOGUN!"], ans: "HUDSON!" },
+      ];
+      return codes[Math.floor(Math.random() * codes.length)];
+    }
+    function makeSurvivalChallenge(): { question: string; choices: string[]; answer: string } {
+      const q = [
+        { q: "You're lost in the woods. What do you do first?", ch: ["Find water!", "Climb a tree!", "Start running!", "Take a nap!"], ans: "Find water!" },
+        { q: "A bear blocks your path! Best move?", ch: ["Back away slowly!", "Charge at it!", "Scream!", "Play dead!"], ans: "Back away slowly!" },
+        { q: "You need shelter. Best material?", ch: ["Branches & leaves!", "Paper!", "Sand!", "Nothing!"], ans: "Branches & leaves!" },
+        { q: "Storm coming! Where do you hide?", ch: ["In a cave!", "Under a tree!", "In the open!", "On a hill!"], ans: "In a cave!" },
+      ];
+      return q[Math.floor(Math.random() * q.length)];
+    }
+
+    function generateChallenge(): { type: string; question: string; choices: string[]; answer: string } {
+      // Levels 1-3: shooting, agility, math
+      // Levels 4+: add riddle, memory, speed, code, survival
+      const basicTypes = ["shooting", "agility", "math"];
+      const advancedTypes = ["riddle", "memory", "speed", "code", "survival"];
+      let pool = [...basicTypes];
+      if (level >= 4) pool = [...pool, ...advancedTypes];
+      const type = pool[Math.floor(Math.random() * pool.length)];
+      let c;
+      switch (type) {
+        case "shooting": c = makeShootingChallenge(); break;
+        case "agility": c = makeAgilityChallenge(); break;
+        case "math": c = makeMathChallenge(); break;
+        case "riddle": c = makeRiddleChallenge(); break;
+        case "memory": c = makeMemoryChallenge(); break;
+        case "speed": c = makeSpeedChallenge(); break;
+        case "code": c = makeCodeChallenge(); break;
+        case "survival": c = makeSurvivalChallenge(); break;
+        default: c = makeMathChallenge();
+      }
+      // Shuffle choices
+      c.choices.sort(() => Math.random() - 0.5);
+      return { type, ...c };
+    }
+
+    function generateReward(): { type: string; label: string } {
+      const rewards = [
+        { type: "weapon", label: "Weapon Upgrade!" },
+        { type: "arrows", label: "+5 Arrows!" },
+        { type: "hearts", label: "+2 Lives!" },
+        { type: "skip", label: "Skip Level!" },
+        { type: "armor", label: "+3 Armor!" },
+        { type: "arrows_big", label: "+10 Arrows!" },
+        { type: "hearts_big", label: "Full Health!" },
+      ];
+      return rewards[Math.floor(Math.random() * rewards.length)];
+    }
+
+    function enterPortalWorld(portal: Portal) {
+      const world = PORTAL_WORLDS.find(w => w.name === portal.name) || { col: portal.col, name: portal.name, bg: "#1a1a2a", emoji: "\uD83C\uDF00" };
+      const challenge = generateChallenge();
+      const reward = generateReward();
+      activeChallenge = { world, ...challenge, reward, timeLimit: 600, failed: false }; // 10 sec
+      gameState = "portalWorld";
+    }
+
+    function applyReward(reward: { type: string; label: string }) {
+      switch (reward.type) {
+        case "weapon":
+          const curIdx = WEAPONS.findIndex(w => w.id === player.weapon?.id);
+          player.weapon = WEAPONS[Math.min(curIdx + 1, WEAPONS.length - 1)];
+          break;
+        case "arrows": player.arrows += 5; break;
+        case "arrows_big": player.arrows += 10; break;
+        case "hearts": player.lives = Math.min(5, player.lives + 2); break;
+        case "hearts_big": player.lives = 5; break;
+        case "armor": player.armor = Math.min(5, player.armor + 3); break;
+        case "skip":
+          if (level >= 10) { gameState = "victory"; return; }
+          gameState = "levelComplete"; levelTimer = 180; return;
+      }
+      score += 500;
+    }
 
     // ============ TYPES ============
     interface Player {
@@ -94,7 +270,7 @@ export default function Game() {
           [1,1,0,0,0,0,1,3,0,0,0,0,1,1],
           [1,1,1,1,1,0,1,1,1,1,1,0,0,1],
           [1,3,0,0,0,0,0,0,0,1,0,0,1,1],
-          [1,0,1,1,1,7,1,1,0,1,0,1,1,1],
+          [1,0,1,1,1,0,1,1,0,1,0,1,1,1],
           [1,0,0,0,1,0,0,1,0,0,0,0,0,1],
           [1,1,1,0,1,1,0,1,1,1,1,1,0,1],
           [1,4,0,0,0,0,0,0,5,0,0,0,0,1],
@@ -109,7 +285,7 @@ export default function Game() {
           [1,5,0,0,0,0,1,6,0,0,0,1,0,1],
           [1,0,1,1,1,1,1,1,1,1,0,1,0,1],
           [1,0,0,0,0,0,0,0,0,0,0,1,0,1],
-          [1,1,1,0,1,1,7,1,1,1,1,1,0,1],
+          [1,1,1,0,1,1,0,1,1,1,1,1,0,1],
           [1,4,0,0,0,1,0,0,0,0,3,0,0,1],
           [1,0,1,1,0,1,0,1,1,1,1,1,1,1],
           [1,0,0,0,0,0,0,0,0,0,0,0,0,2],
@@ -257,17 +433,11 @@ export default function Game() {
 
     function makePortals(map: number[][]): Portal[] {
       const portals: Portal[] = [];
-      const portalWorlds = [
-        { col: "#00ffff", name: "Ice World" },
-        { col: "#ff6600", name: "Fire World" },
-        { col: "#aa00ff", name: "Shadow World" },
-        { col: "#00ff44", name: "Forest World" },
-        { col: "#ff0088", name: "Crystal World" },
-      ];
-      // Find portal tiles and pair them or warp to a random path
+      // Shuffle the 8 worlds so each portal gets a unique one
+      const shuffled = [...PORTAL_WORLDS].sort(() => Math.random() - 0.5);
       for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) {
         if (map[y][x] === 7) {
-          const pw = portalWorlds[portals.length % portalWorlds.length];
+          const pw = shuffled[portals.length % shuffled.length];
           // Find a random path tile far away
           let dx: number, dy: number;
           do { dx = Math.floor(Math.random() * C); dy = Math.floor(Math.random() * R); }
@@ -301,7 +471,7 @@ export default function Game() {
       pickups = makePickups(map);
       portals = makePortals(map);
       monsters = makeMonsters(lv, map);
-      player.x = 0; player.y = 0; player.arrows = 3; player.armor = 0; player.flash = 0;
+      player.x = 0; player.y = 0; player.armor = 0; player.flash = 0;
       // Keep weapon and magic between levels
       gameState = "playing";
       updH();
@@ -633,6 +803,140 @@ export default function Game() {
       });
     }
 
+    // ============ DRAW PORTAL WORLD ============
+    function drawPortalWorld() {
+      if (!activeChallenge) return;
+      const ch = activeChallenge;
+      const w = ch.world;
+      // Background
+      X.fillStyle = w.bg; X.fillRect(0, 0, CV.width, CV.height);
+      // Animated particles
+      for (let i = 0; i < 15; i++) {
+        const px = Math.sin(tick / 15 + i * 1.3) * CV.width / 2 + CV.width / 2;
+        const py = Math.cos(tick / 12 + i * 0.9) * CV.height / 2 + CV.height / 2;
+        const a = 0.2 + Math.sin(tick / 6 + i) * 0.2;
+        X.fillStyle = w.col; X.globalAlpha = a;
+        X.beginPath(); X.arc(px, py, 3, 0, Math.PI * 2); X.fill();
+      }
+      X.globalAlpha = 1;
+      // Border glow
+      X.save(); X.shadowColor = w.col; X.shadowBlur = 15;
+      X.strokeStyle = w.col; X.lineWidth = 3;
+      X.strokeRect(8, 8, CV.width - 16, CV.height - 16);
+      X.restore();
+      // World title
+      X.save(); X.shadowColor = w.col; X.shadowBlur = 20;
+      X.fillStyle = w.col; X.font = "bold 22px monospace"; X.textAlign = "center";
+      X.fillText(`${w.emoji} ${w.name} ${w.emoji}`, CV.width / 2, 40);
+      X.restore();
+      // Challenge type label
+      const typeLabels: Record<string, string> = {
+        shooting: "\uD83C\uDFF9 SHOOTING CHALLENGE", agility: "\uD83C\uDFC3 AGILITY CHALLENGE",
+        math: "\uD83D\uDCDA MATH CHALLENGE", riddle: "\uD83E\uDD14 RIDDLE CHALLENGE",
+        memory: "\uD83E\uDDE0 MEMORY CHALLENGE", speed: "\u26A1 SPEED CHALLENGE",
+        code: "\uD83D\uDD10 CODE CHALLENGE", survival: "\uD83C\uDFD5\uFE0F SURVIVAL CHALLENGE",
+      };
+      X.fillStyle = "#ffffff"; X.font = "bold 13px monospace"; X.textAlign = "center";
+      X.fillText(typeLabels[ch.type] || "CHALLENGE", CV.width / 2, 68);
+      // Question
+      X.fillStyle = "#eeeeee"; X.font = "14px monospace";
+      // Word wrap question
+      const words = ch.question.split(" ");
+      let line = "", lineY = 100;
+      for (const word of words) {
+        const test = line + word + " ";
+        if (X.measureText(test).width > CV.width - 60) {
+          X.fillText(line.trim(), CV.width / 2, lineY);
+          line = word + " "; lineY += 18;
+        } else { line = test; }
+      }
+      X.fillText(line.trim(), CV.width / 2, lineY);
+      // Reward preview
+      X.fillStyle = "#ffcc00"; X.font = "bold 11px monospace";
+      X.fillText(`Reward: ${ch.reward.label}`, CV.width / 2, lineY + 30);
+      // Timer bar
+      ch.timeLimit--;
+      const pct = Math.max(0, ch.timeLimit / 600);
+      X.fillStyle = "#333"; X.fillRect(CV.width / 2 - 100, lineY + 42, 200, 8);
+      X.fillStyle = pct > 0.3 ? "#00cc44" : "#ff3300"; X.fillRect(CV.width / 2 - 100, lineY + 42, 200 * pct, 8);
+      X.fillStyle = "#999"; X.font = "9px monospace";
+      X.fillText(`Time: ${Math.ceil(ch.timeLimit / 60)}s`, CV.width / 2, lineY + 62);
+      // Choices as buttons (draw on canvas, click handled separately)
+      const choiceY = lineY + 80;
+      const choiceW = 120, choiceH = 32, gap = 8;
+      const cols = 2;
+      ch.choices.forEach((c, i) => {
+        const cx = CV.width / 2 + (i % cols === 0 ? -(choiceW + gap / 2) : gap / 2);
+        const cy = choiceY + Math.floor(i / cols) * (choiceH + gap);
+        X.fillStyle = "#1a1a3a"; X.fillRect(cx, cy, choiceW, choiceH);
+        X.strokeStyle = w.col; X.lineWidth = 2; X.strokeRect(cx, cy, choiceW, choiceH);
+        X.fillStyle = "#ffffff"; X.font = "bold 11px monospace";
+        X.fillText(c, cx + choiceW / 2, cy + choiceH / 2 + 4);
+      });
+      // Failed message
+      if (ch.failed) {
+        X.fillStyle = "#ff4444"; X.font = "bold 16px monospace";
+        X.fillText("WRONG! No reward this time.", CV.width / 2, CV.height - 40);
+        X.fillStyle = "#999"; X.font = "11px monospace";
+        X.fillText("Press any key to return...", CV.width / 2, CV.height - 20);
+      }
+      // Time ran out
+      if (ch.timeLimit <= 0 && !ch.failed) {
+        ch.failed = true;
+        setMsg("Time's up! No reward.");
+      }
+      X.textAlign = "left";
+    }
+
+    // ============ PORTAL CHALLENGE ANSWER HANDLER ============
+    (window as unknown as Record<string, unknown>).portalAnswer = function (choice: string) {
+      if (!activeChallenge || activeChallenge.failed) return;
+      if (choice === activeChallenge.answer) {
+        // Correct! Apply reward
+        applyReward(activeChallenge.reward);
+        updH();
+        setMsg(`${activeChallenge.world.emoji} Correct! ${activeChallenge.reward.label}`);
+        activeChallenge = null;
+        if (gameState === "portalWorld") gameState = "playing";
+      } else {
+        // Wrong answer
+        activeChallenge.failed = true;
+        setMsg("Wrong answer! No reward.");
+        setTimeout(() => {
+          activeChallenge = null;
+          if (gameState === "portalWorld") gameState = "playing";
+        }, 1500);
+      }
+    };
+
+    // Canvas click handler for portal world choices
+    CV.addEventListener("click", (e) => {
+      if (gameState !== "portalWorld" || !activeChallenge || activeChallenge.failed) return;
+      const rect = CV.getBoundingClientRect();
+      const scaleX = CV.width / rect.width;
+      const scaleY = CV.height / rect.height;
+      const mx = (e.clientX - rect.left) * scaleX;
+      const my = (e.clientY - rect.top) * scaleY;
+      // Calculate question height to find choice positions
+      const words = activeChallenge.question.split(" ");
+      let line = "", lineY = 100;
+      X.font = "14px monospace";
+      for (const word of words) {
+        const test = line + word + " ";
+        if (X.measureText(test).width > CV.width - 60) { line = word + " "; lineY += 18; }
+        else { line = test; }
+      }
+      const choiceY = lineY + 80;
+      const choiceW = 120, choiceH = 32, gap = 8, cols = 2;
+      activeChallenge.choices.forEach((c, i) => {
+        const cx = CV.width / 2 + (i % cols === 0 ? -(choiceW + gap / 2) : gap / 2);
+        const cy = choiceY + Math.floor(i / cols) * (choiceH + gap);
+        if (mx >= cx && mx <= cx + choiceW && my >= cy && my <= cy + choiceH) {
+          (window as unknown as Record<string, (s: string) => void>).portalAnswer(c);
+        }
+      });
+    });
+
     // ============ RENDER ============
     function render() {
       tick++;
@@ -665,6 +969,8 @@ export default function Game() {
         drawLevelComplete();
         levelTimer--;
         if (levelTimer <= 0) startLevel(level + 1);
+      } else if (gameState === "portalWorld") {
+        drawPortalWorld();
       } else if (gameState === "gameOver") {
         drawGameOver();
       } else if (gameState === "victory") {
@@ -778,13 +1084,12 @@ export default function Game() {
         }
         updH();
       }
-      // Check portal
+      // Check portal — enter a portal world challenge!
       const portal = portals.find(p => !p.taken && p.x === nx && p.y === ny);
       if (portal) {
         portal.taken = true;
-        player.x = portal.destX; player.y = portal.destY;
-        score += 150;
-        setMsg(`Portal to ${portal.name}! Teleported!`);
+        enterPortalWorld(portal);
+        return;
       }
       // Check chicken!
       if (nx === chicken.x && ny === chicken.y) {
@@ -808,8 +1113,12 @@ export default function Game() {
 
     // ============ INPUT ============
     document.addEventListener("keydown", e => {
+      if (gameState === "portalWorld") {
+        if (activeChallenge?.failed) { activeChallenge = null; gameState = "playing"; }
+        return;
+      }
       if (gameState === "gameOver" || gameState === "victory") {
-        score = 0; player.weapon = WEAPONS[0]; player.magic = null; player.magicUses = 0; player.arrows = 3;
+        score = 0; player.lives = 5; player.weapon = WEAPONS[0]; player.magic = null; player.magicUses = 0; player.arrows = 3;
         startLevel(1); return;
       }
       const moves: Record<string, [number, number]> = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
