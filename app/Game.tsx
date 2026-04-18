@@ -160,7 +160,7 @@ export default function Game() {
     }
 
     // ============ GAME STATE ============
-    type GameState = "intro" | "playing" | "paused" | "levelComplete" | "gameOver" | "victory" | "portalWorld" | "miniGame" | "portalTravel";
+    type GameState = "intro" | "playing" | "paused" | "levelComplete" | "gameOver" | "victory" | "miniGame" | "portalTravel";
     let portalTravelTimer = 0;
     let portalTravelWorld: { col: string; name: string; bg: string; emoji: string } | null = null;
     let gameState: GameState = "intro";
@@ -280,18 +280,6 @@ export default function Game() {
     ];
 
     // ============ PORTAL WORLD CHALLENGE ============
-    interface PortalChallenge {
-      world: { col: string; name: string; bg: string; emoji: string };
-      type: string; // "shooting" | "agility" | "math" | ...
-      question: string;
-      choices: string[];
-      answer: string;
-      reward: { type: string; label: string };
-      // no timer - take your time!
-      failed: boolean;
-    }
-    let activeChallenge: PortalChallenge | null = null;
-
     const PORTAL_WORLDS = [
       { col: "#00ffff", name: "Ice World", bg: "#0a2a4a", emoji: "\u2744\uFE0F" },
       { col: "#ff4400", name: "Fire World", bg: "#4a1a0a", emoji: "\uD83D\uDD25" },
@@ -314,156 +302,6 @@ export default function Game() {
       { col: "#8888ff", name: "Dad World", bg: "#1a1a3a", emoji: "\uD83D\uDC68\u200D\uD83D\uDCBC" },
       { col: "#ffff88", name: "Kid World", bg: "#2a2a1a", emoji: "\uD83E\uDDD2" },
     ];
-
-    // Challenge generators per type
-    function makeShootingChallenge(): { question: string; choices: string[]; answer: string } {
-      const targets = Math.floor(Math.random() * 5) + 3;
-      const hits = Math.floor(Math.random() * (targets - 1)) + 1;
-      const missed = targets - hits;
-      return { question: `You shot ${targets} arrows! ${hits} hit the target. How many missed?`, choices: [String(missed), String(missed + 1), String(missed - 1 < 0 ? 0 : missed - 1), String(targets)], answer: String(missed) };
-    }
-    function makeAgilityChallenge(): { question: string; choices: string[]; answer: string } {
-      const scenarios = [
-        { q: "A boulder is rolling toward you! Which way do you dodge?", ch: ["Jump left!", "Jump right!", "Stand still!", "Duck!"], ans: "Jump left!" },
-        { q: "You're crossing a river! How do you get across?", ch: ["Swim fast!", "Find stepping stones", "Build a raft", "Fly over"], ans: "Find stepping stones" },
-        { q: "A pit trap opens beneath you! What do you grab?", ch: ["The vine!", "The ledge!", "Your hat!", "Nothing!"], ans: "The vine!" },
-        { q: "Lava is rising! Where do you climb?", ch: ["The tall rock!", "The ladder!", "The tree!", "Stay put!"], ans: "The tall rock!" },
-        { q: "An avalanche! Which way do you run?", ch: ["Sideways!", "Downhill!", "Straight at it!", "In circles!"], ans: "Sideways!" },
-        { q: "A bridge is collapsing! What do you do?", ch: ["Sprint across!", "Turn back!", "Jump off!", "Walk slowly!"], ans: "Sprint across!" },
-      ];
-      return scenarios[Math.floor(Math.random() * scenarios.length)];
-    }
-    function makeMathChallenge(): { question: string; choices: string[]; answer: string } {
-      const type = Math.floor(Math.random() * 5);
-      if (type === 0) {
-        const a = Math.floor(Math.random() * 50) + 10, b = Math.floor(Math.random() * 50) + 10;
-        const ans = a + b;
-        return { question: `What is ${a} + ${b}?`, choices: [String(ans), String(ans + 3), String(ans - 2), String(ans + 7)], answer: String(ans) };
-      } else if (type === 1) {
-        const a = Math.floor(Math.random() * 40) + 20, b = Math.floor(Math.random() * 15) + 5;
-        const ans = a - b;
-        return { question: `What is ${a} - ${b}?`, choices: [String(ans), String(ans + 4), String(ans - 3), String(ans + 1)], answer: String(ans) };
-      } else if (type === 2) {
-        const a = Math.floor(Math.random() * 9) + 2, b = Math.floor(Math.random() * 9) + 2;
-        const ans = a * b;
-        return { question: `What is ${a} \u00D7 ${b}?`, choices: [String(ans), String(ans + a), String(ans - b), String(ans + 5)], answer: String(ans) };
-      } else if (type === 3) {
-        const b = Math.floor(Math.random() * 8) + 2, ans = Math.floor(Math.random() * 10) + 2;
-        const a = b * ans;
-        return { question: `What is ${a} \u00F7 ${b}?`, choices: [String(ans), String(ans + 1), String(ans - 1), String(ans + 3)], answer: String(ans) };
-      } else {
-        const whole = Math.floor(Math.random() * 5) + 1;
-        const frac = [["1/4","1/2","3/4","1/3"],["1/2","1/4","3/4","2/3"],["3/4","1/2","1/4","1/3"]][Math.floor(Math.random() * 3)];
-        return { question: `Which is the biggest fraction?`, choices: [...frac], answer: frac.includes("3/4") ? "3/4" : frac.includes("2/3") ? "2/3" : "1/2" };
-      }
-    }
-    // New challenge types for levels 4+
-    function makeRiddleChallenge(): { question: string; choices: string[]; answer: string } {
-      const riddles = [
-        { q: "I have hands but can't clap. What am I?", ch: ["A clock!", "A glove!", "A tree!", "A book!"], ans: "A clock!" },
-        { q: "I have a head and a tail but no body. What am I?", ch: ["A coin!", "A snake!", "A fish!", "A drum!"], ans: "A coin!" },
-        { q: "What has keys but no locks?", ch: ["A piano!", "A map!", "A cage!", "A door!"], ans: "A piano!" },
-        { q: "What gets wetter the more it dries?", ch: ["A towel!", "Rain!", "A sponge!", "Ice!"], ans: "A towel!" },
-        { q: "What can you catch but not throw?", ch: ["A cold!", "A ball!", "A fish!", "A star!"], ans: "A cold!" },
-        { q: "I'm tall when young, short when old. What am I?", ch: ["A candle!", "A tree!", "A person!", "A tower!"], ans: "A candle!" },
-      ];
-      return riddles[Math.floor(Math.random() * riddles.length)];
-    }
-    function makeMemoryChallenge(): { question: string; choices: string[]; answer: string } {
-      const items = ["sword", "shield", "potion", "arrow", "gem", "key", "crown", "scroll"];
-      const pick = items.sort(() => Math.random() - 0.5).slice(0, 3);
-      const ask = pick[Math.floor(Math.random() * pick.length)];
-      return { question: `Remember: ${pick.join(", ")}. Was "${ask}" in the list?`, choices: ["Yes!", "No!", "Maybe!", "I forgot!"], answer: "Yes!" };
-    }
-    function makeSpeedChallenge(): { question: string; choices: string[]; answer: string } {
-      const scenarios = [
-        { q: "QUICK! A dragon breathes fire! What's fireproof?", ch: ["Stone shield!", "Paper hat!", "Wooden sword!", "Ice cream!"], ans: "Stone shield!" },
-        { q: "FAST! Zombies are coming! What stops them?", ch: ["Run away!", "Hug them!", "Take a nap!", "Sit down!"], ans: "Run away!" },
-        { q: "HURRY! The castle is flooding! Grab what?", ch: ["A boat!", "A sandwich!", "A pillow!", "A book!"], ans: "A boat!" },
-        { q: "NOW! A ghost appears! What scares ghosts?", ch: ["Bright light!", "A whisper!", "Dancing!", "Sleeping!"], ans: "Bright light!" },
-      ];
-      return scenarios[Math.floor(Math.random() * scenarios.length)];
-    }
-    function makeCodeChallenge(): { question: string; choices: string[]; answer: string } {
-      const codes = [
-        { q: "Crack the code! 1=A, 2=B, 3=C. What is 3-1-2?", ch: ["CAB!", "ABC!", "BAC!", "CBA!"], ans: "CAB!" },
-        { q: "What comes next? 2, 4, 6, 8, ___", ch: ["10", "9", "12", "11"], ans: "10" },
-        { q: "Pattern: \u2605\u25CB\u2605\u25CB\u2605___", ch: ["\u25CB", "\u2605", "\u25B3", "\u25A0"], ans: "\u25CB" },
-        { q: "Unscramble: DONHSU = ?", ch: ["HUDSON!", "HOUNDS!", "DUNHOS!", "SHOGUN!"], ans: "HUDSON!" },
-      ];
-      return codes[Math.floor(Math.random() * codes.length)];
-    }
-    function makeSurvivalChallenge(): { question: string; choices: string[]; answer: string } {
-      const q = [
-        { q: "You're lost in the woods. What do you do first?", ch: ["Find water!", "Climb a tree!", "Start running!", "Take a nap!"], ans: "Find water!" },
-        { q: "A bear blocks your path! Best move?", ch: ["Back away slowly!", "Charge at it!", "Scream!", "Play dead!"], ans: "Back away slowly!" },
-        { q: "You need shelter. Best material?", ch: ["Branches & leaves!", "Paper!", "Sand!", "Nothing!"], ans: "Branches & leaves!" },
-        { q: "Storm coming! Where do you hide?", ch: ["In a cave!", "Under a tree!", "In the open!", "On a hill!"], ans: "In a cave!" },
-      ];
-      return q[Math.floor(Math.random() * q.length)];
-    }
-
-    function generateChallenge(): { type: string; question: string; choices: string[]; answer: string } {
-      // Levels 1-3: shooting, agility, math
-      // Levels 4+: add riddle, memory, speed, code, survival
-      const basicTypes = ["shooting", "agility", "riddle"];
-      const advancedTypes = ["memory", "speed", "code", "survival"];
-      let pool = [...basicTypes];
-      if (level >= 4) pool = [...pool, ...advancedTypes];
-      const type = pool[Math.floor(Math.random() * pool.length)];
-      let c: { q: string; ch: string[]; ans: string } = makeRiddleChallenge();
-      switch (type) {
-        case "shooting": c = makeShootingChallenge(); break;
-        case "agility": c = makeAgilityChallenge(); break;
-        case "riddle": c = makeRiddleChallenge(); break;
-        case "memory": c = makeMemoryChallenge(); break;
-        case "speed": c = makeSpeedChallenge(); break;
-        case "code": c = makeCodeChallenge(); break;
-        case "survival": c = makeSurvivalChallenge(); break;
-      }
-      // Shuffle choices
-      if (c && c.ch) c.ch.sort(() => Math.random() - 0.5);
-      return { type, ...c };
-    }
-
-    function generateReward(): { type: string; label: string } {
-      const rewards = [
-        { type: "weapon", label: "Weapon Upgrade!" },
-        { type: "arrows", label: "+5 Arrows!" },
-        { type: "hearts", label: "+2 Lives!" },
-        { type: "skip", label: "Skip Level!" },
-        { type: "armor", label: "+3 Armor!" },
-        { type: "arrows_big", label: "+10 Arrows!" },
-        { type: "hearts_big", label: "Full Health!" },
-      ];
-      return rewards[Math.floor(Math.random() * rewards.length)];
-    }
-
-    function enterPortalWorld(portal: Portal) {
-      // Pick a random world (any world, not necessarily the portal's color)
-      const world = PORTAL_WORLDS[Math.floor(Math.random() * PORTAL_WORLDS.length)];
-      portalTravelWorld = world;
-      portalTravelTimer = 180; // ~3 sec travel transition
-      gameState = "portalTravel";
-    }
-
-    function applyReward(reward: { type: string; label: string }) {
-      switch (reward.type) {
-        case "weapon":
-          const curIdx = WEAPONS.findIndex(w => w.id === player.weapon?.id);
-          player.weapon = WEAPONS[Math.min(curIdx + 1, WEAPONS.length - 1)];
-          break;
-        case "arrows": player.arrows += 5; break;
-        case "arrows_big": player.arrows += 10; break;
-        case "hearts": player.lives = Math.min(5, player.lives + 2); break;
-        case "hearts_big": player.lives = 5; break;
-        case "armor": player.armor = Math.min(5, player.armor + 3); break;
-        case "skip":
-          if (level >= 10) { gameState = "victory"; return; }
-          gameState = "levelComplete"; levelTimer = 180; return;
-      }
-      score += 500;
-    }
 
     // ============ TYPES ============
     interface Player {
@@ -1278,131 +1116,6 @@ export default function Game() {
       });
     }
 
-    // ============ DRAW PORTAL WORLD ============
-    function drawPortalWorld() {
-      if (!activeChallenge) return;
-      const ch = activeChallenge;
-      const w = ch.world;
-      // Background
-      X.fillStyle = w.bg; X.fillRect(0, 0, CV.width, CV.height);
-      // Animated particles
-      for (let i = 0; i < 15; i++) {
-        const px = Math.sin(tick / 15 + i * 1.3) * CV.width / 2 + CV.width / 2;
-        const py = Math.cos(tick / 12 + i * 0.9) * CV.height / 2 + CV.height / 2;
-        const a = 0.2 + Math.sin(tick / 6 + i) * 0.2;
-        X.fillStyle = w.col; X.globalAlpha = a;
-        X.beginPath(); X.arc(px, py, 3, 0, Math.PI * 2); X.fill();
-      }
-      X.globalAlpha = 1;
-      // Border glow
-      X.save(); X.shadowColor = w.col; X.shadowBlur = 15;
-      X.strokeStyle = w.col; X.lineWidth = 3;
-      X.strokeRect(8, 8, CV.width - 16, CV.height - 16);
-      X.restore();
-      // World title
-      X.save(); X.shadowColor = w.col; X.shadowBlur = 20;
-      X.fillStyle = w.col; X.font = "bold 22px monospace"; X.textAlign = "center";
-      X.fillText(`${w.emoji} ${w.name} ${w.emoji}`, CV.width / 2, 40);
-      X.restore();
-      // Challenge type label
-      const typeLabels: Record<string, string> = {
-        shooting: "\uD83C\uDFF9 SHOOTING CHALLENGE", agility: "\uD83C\uDFC3 AGILITY CHALLENGE",
-        math: "\uD83D\uDCDA MATH CHALLENGE", riddle: "\uD83E\uDD14 RIDDLE CHALLENGE",
-        memory: "\uD83E\uDDE0 MEMORY CHALLENGE", speed: "\u26A1 SPEED CHALLENGE",
-        code: "\uD83D\uDD10 CODE CHALLENGE", survival: "\uD83C\uDFD5\uFE0F SURVIVAL CHALLENGE",
-      };
-      X.fillStyle = "#ffffff"; X.font = "bold 13px monospace"; X.textAlign = "center";
-      X.fillText(typeLabels[ch.type] || "CHALLENGE", CV.width / 2, 68);
-      // Question
-      X.fillStyle = "#eeeeee"; X.font = "14px monospace";
-      // Word wrap question
-      const words = ch.question.split(" ");
-      let line = "", lineY = 100;
-      for (const word of words) {
-        const test = line + word + " ";
-        if (X.measureText(test).width > CV.width - 60) {
-          X.fillText(line.trim(), CV.width / 2, lineY);
-          line = word + " "; lineY += 18;
-        } else { line = test; }
-      }
-      X.fillText(line.trim(), CV.width / 2, lineY);
-      // Reward preview
-      X.fillStyle = "#ffcc00"; X.font = "bold 11px monospace";
-      X.fillText(`Reward: ${ch.reward.label}`, CV.width / 2, lineY + 30);
-      // Take your time message
-      X.fillStyle = "#88ff88"; X.font = "10px monospace";
-      X.fillText("Take your time! No rush.", CV.width / 2, lineY + 50);
-      // Choices as buttons (draw on canvas, click handled separately)
-      const choiceY = lineY + 65;
-      const choiceW = 120, choiceH = 32, gap = 8;
-      const cols = 2;
-      ch.choices.forEach((c, i) => {
-        const cx = CV.width / 2 + (i % cols === 0 ? -(choiceW + gap / 2) : gap / 2);
-        const cy = choiceY + Math.floor(i / cols) * (choiceH + gap);
-        X.fillStyle = "#1a1a3a"; X.fillRect(cx, cy, choiceW, choiceH);
-        X.strokeStyle = w.col; X.lineWidth = 2; X.strokeRect(cx, cy, choiceW, choiceH);
-        X.fillStyle = "#ffffff"; X.font = "bold 11px monospace";
-        X.fillText(c, cx + choiceW / 2, cy + choiceH / 2 + 4);
-      });
-      // Failed message
-      if (ch.failed) {
-        X.fillStyle = "#ff4444"; X.font = "bold 16px monospace";
-        X.fillText("WRONG! No reward this time.", CV.width / 2, CV.height - 40);
-        X.fillStyle = "#999"; X.font = "11px monospace";
-        X.fillText("Press any key to return...", CV.width / 2, CV.height - 20);
-      }
-      X.textAlign = "left";
-    }
-
-    // ============ PORTAL CHALLENGE ANSWER HANDLER ============
-    (window as unknown as Record<string, unknown>).portalAnswer = function (choice: string) {
-      if (!activeChallenge || activeChallenge.failed) return;
-      if (choice === activeChallenge.answer) {
-        // Correct! Apply reward
-        applyReward(activeChallenge.reward);
-        updH();
-        setMsg(`${activeChallenge.world.emoji} Correct! ${activeChallenge.reward.label}`);
-        activeChallenge = null;
-        if (gameState === "portalWorld") gameState = "playing";
-      } else {
-        // Wrong answer
-        activeChallenge.failed = true;
-        setMsg("Wrong answer! No reward.");
-        setTimeout(() => {
-          activeChallenge = null;
-          if (gameState === "portalWorld") gameState = "playing";
-        }, 1500);
-      }
-    };
-
-    // Canvas click handler for portal world choices
-    CV.addEventListener("click", (e) => {
-      if (gameState !== "portalWorld" || !activeChallenge || activeChallenge.failed) return;
-      const rect = CV.getBoundingClientRect();
-      const scaleX = CV.width / rect.width;
-      const scaleY = CV.height / rect.height;
-      const mx = (e.clientX - rect.left) * scaleX;
-      const my = (e.clientY - rect.top) * scaleY;
-      // Calculate question height to find choice positions
-      const words = activeChallenge.question.split(" ");
-      let line = "", lineY = 100;
-      X.font = "14px monospace";
-      for (const word of words) {
-        const test = line + word + " ";
-        if (X.measureText(test).width > CV.width - 60) { line = word + " "; lineY += 18; }
-        else { line = test; }
-      }
-      const choiceY = lineY + 65;
-      const choiceW = 120, choiceH = 32, gap = 8, cols = 2;
-      activeChallenge.choices.forEach((c, i) => {
-        const cx = CV.width / 2 + (i % cols === 0 ? -(choiceW + gap / 2) : gap / 2);
-        const cy = choiceY + Math.floor(i / cols) * (choiceH + gap);
-        if (mx >= cx && mx <= cx + choiceW && my >= cy && my <= cy + choiceH) {
-          (window as unknown as Record<string, (s: string) => void>).portalAnswer(c);
-        }
-      });
-    });
-
     // ============ SMOKE PUFFS ============
     function drawSmokePuffs() {
       smokePuffs = smokePuffs.filter(p => p.life > 0);
@@ -1449,6 +1162,14 @@ export default function Game() {
       mg.swapFrom = Math.floor(Math.random() * 3);
       do { mg.swapTo = Math.floor(Math.random() * 3); } while (mg.swapTo === mg.swapFrom);
       mg.swapProgress = 0;
+    }
+
+    function enterPortalWorld(_portal: Portal) {
+      // Pick a random world, then show travel transition before the hat shuffle
+      const world = PORTAL_WORLDS[Math.floor(Math.random() * PORTAL_WORLDS.length)];
+      portalTravelWorld = world;
+      portalTravelTimer = 180; // ~3 sec travel transition
+      gameState = "portalTravel";
     }
 
     function drawHat(x: number, y: number, raised: boolean = false) {
@@ -1888,8 +1609,6 @@ export default function Game() {
         drawLevelComplete();
         levelTimer--;
         if (levelTimer <= 0) startLevel(level + 1);
-      } else if (gameState === "portalWorld") {
-        drawPortalWorld();
       } else if (gameState === "miniGame") {
         drawMiniGame();
       } else if (gameState === "portalTravel") {
@@ -2082,10 +1801,6 @@ export default function Game() {
         if (gameState === "paused") { gameState = "playing"; return; }
       }
       if (gameState === "paused") return;
-      if (gameState === "portalWorld") {
-        if (activeChallenge?.failed) { activeChallenge = null; gameState = "playing"; }
-        return;
-      }
       if (gameState === "miniGame") {
         // Hat Shuffle is click-only; if already done, any key dismisses early
         if (miniGame && miniGame.phase === "done") { miniGame = null; gameState = "playing"; return; }
