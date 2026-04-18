@@ -18,12 +18,266 @@ export default function Game() {
     CV.height = R * S;
     let tick = 0;
 
+    // ============ AUDIO (Web Audio API, synthesized in-browser) ============
+    type AudioCtxCtor = typeof AudioContext;
+    let audioCtx: AudioContext | null = null;
+    let muted = false;
+    let musicGain: GainNode | null = null;
+    let musicStarted = false;
+    let musicTimer: ReturnType<typeof setInterval> | null = null;
+
+    function getAudio(): AudioContext | null {
+      if (muted) return null;
+      if (!audioCtx) {
+        try {
+          const W = window as unknown as { AudioContext?: AudioCtxCtor; webkitAudioContext?: AudioCtxCtor };
+          const AC = W.AudioContext || W.webkitAudioContext;
+          if (!AC) return null;
+          audioCtx = new AC();
+          musicGain = audioCtx.createGain();
+          musicGain.gain.value = 0.10; // subtle background
+          musicGain.connect(audioCtx.destination);
+        } catch { return null; }
+      }
+      return audioCtx;
+    }
+
+    // Medieval flute note — triangle wave with vibrato + attack/decay envelope
+    function playFluteNote(freq: number, duration: number, startOffset: number = 0) {
+      const ctx = getAudio();
+      if (!ctx || !musicGain) return;
+      const now = ctx.currentTime + startOffset;
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = freq;
+      // Vibrato for the whimsical flute sound
+      const vibrato = ctx.createOscillator();
+      vibrato.frequency.value = 5.5;
+      const vibratoGain = ctx.createGain();
+      vibratoGain.gain.value = freq * 0.015;
+      vibrato.connect(vibratoGain);
+      vibratoGain.connect(osc.frequency);
+      vibrato.start(now);
+      vibrato.stop(now + duration);
+      // Envelope
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0, now);
+      env.gain.linearRampToValueAtTime(0.8, now + 0.03); // attack
+      env.gain.exponentialRampToValueAtTime(0.4, now + duration * 0.5); // sustain/decay
+      env.gain.exponentialRampToValueAtTime(0.001, now + duration); // release
+      osc.connect(env);
+      env.connect(musicGain);
+      osc.start(now);
+      osc.stop(now + duration + 0.05);
+    }
+
+    // Simple whimsical medieval flute melody (in D major / Dorian-ish)
+    // Note pitches — approx frequencies
+    const NOTE: Record<string, number> = {
+      D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
+      C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.00,
+    };
+    // Melody: notes with durations (in seconds). Loops every ~8 sec.
+    const MELODY: [string, number][] = [
+      ["D5", 0.4], ["F5", 0.2], ["E5", 0.2], ["D5", 0.4], ["A4", 0.4],
+      ["D5", 0.3], ["E5", 0.3], ["F5", 0.6],
+      ["G5", 0.4], ["F5", 0.2], ["E5", 0.2], ["D5", 0.4], ["E5", 0.4],
+      ["D5", 0.3], ["A4", 0.3], ["D5", 0.8],
+      ["F5", 0.3], ["G5", 0.3], ["A5", 0.4], ["G5", 0.4],
+      ["F5", 0.3], ["E5", 0.3], ["D5", 0.8],
+    ];
+
+    function scheduleMelodyLoop() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      let t = 0;
+      for (const [note, dur] of MELODY) {
+        playFluteNote(NOTE[note], dur, t);
+        t += dur;
+      }
+      return t; // total length
+    }
+
+    function startMusic() {
+      if (musicStarted) return;
+      const ctx = getAudio();
+      if (!ctx) return;
+      musicStarted = true;
+      // Schedule first loop and repeat
+      const totalLen = scheduleMelodyLoop() || 8;
+      musicTimer = setInterval(() => {
+        if (muted) return;
+        scheduleMelodyLoop();
+      }, Math.floor(totalLen * 1000));
+    }
+
+    function stopMusic() {
+      musicStarted = false;
+      if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
+    }
+
+    // Squish sound — low burst with pitch drop (monster hit)
+    function playSquish() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.18);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.35, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+      osc.connect(env);
+      env.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.22);
+    }
+
+    // Pffft sound — white noise burst (smoke puff)
+    function playPfft() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const bufferSize = Math.floor(ctx.sampleRate * 0.25);
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      // Bandpass filter for "ffft" texture
+      const filter = ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.value = 1200;
+      filter.Q.value = 0.8;
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.4, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+      src.connect(filter);
+      filter.connect(env);
+      env.connect(ctx.destination);
+      src.start(now);
+    }
+
     // ============ GAME STATE ============
-    type GameState = "playing" | "levelComplete" | "gameOver" | "victory" | "portalWorld";
-    let gameState: GameState = "playing";
+    type GameState = "intro" | "playing" | "paused" | "levelComplete" | "gameOver" | "victory" | "portalWorld" | "miniGame" | "portalTravel";
+    let portalTravelTimer = 0;
+    let portalTravelWorld: { col: string; name: string; bg: string; emoji: string } | null = null;
+    let gameState: GameState = "intro";
     let level = 1;
     let score = 0;
     let levelTimer = 0;
+    let introScroll = 0;
+    let chickensCollected = 0;
+    let levelClock = 0; // ticks remaining for this level
+    // Smoke puffs when monsters die
+    interface SmokePuff { x: number; y: number; life: number; maxLife: number; }
+    let smokePuffs: SmokePuff[] = [];
+    function spawnSmoke(x: number, y: number) {
+      smokePuffs.push({ x, y, life: 30, maxLife: 30 });
+      playPfft();
+    }
+    // Pet dog companion — follows Hudson with a delay (trail buffer)
+    const petTrail: { x: number; y: number }[] = [];
+    // Mini-game state for portal worlds (Hat Shuffle)
+    interface Hat { x: number; hasBall: boolean; }
+    interface MiniGameState {
+      type: "hatshuffle";
+      world: { col: string; name: string; bg: string; emoji: string };
+      phase: "showing" | "shuffling" | "guessing" | "done";
+      hats: Hat[];
+      shuffleStep: number;
+      shuffleTotal: number;
+      swapFrom: number;
+      swapTo: number;
+      swapProgress: number; // 0..1
+      revealTimer: number;
+      resultTimer: number;
+      won: boolean;
+      done?: boolean;
+    }
+    let miniGame: MiniGameState | null = null;
+    const HAT_Y = 220; // fixed y position for all hats
+    const HAT_XS = [140, 280, 420]; // initial x positions
+    const LEVEL_TIMES = [5400, 6000, 6600, 7200, 7800, 9000, 10200, 11400, 12600, 14400]; // ticks per level (90s to 240s)
+
+    // ============ EPIC INTRO STORY ============
+    const INTRO_LINES = [
+      "",
+      "HOW TO PLAY",
+      "",
+      "Arrow Keys \u2014 Move Hudson",
+      "F \u2014 Fight nearby monsters",
+      "M \u2014 Use magic power",
+      "P \u2014 Pause the game",
+      "",
+      "Walk over items to pick them up",
+      "Portals appear on levels 3, 6, 9",
+      "",
+      "Find the GOLDEN DOG in each maze",
+      "Save all 10 to beat the game!",
+      "",
+      "",
+      "\u2014 THE STORY \u2014",
+      "",
+      "",
+      "In a time of legends...",
+      "in a kingdom beyond the mountains...",
+      "",
+      "there lived a brave knight",
+      "known across all the lands as",
+      "",
+      "SIR HUDSON",
+      "",
+      "Knight of Snider Castle",
+      "Champion of the Realm",
+      "Protector of All Creatures",
+      "",
+      "",
+      "For generations, the Royal Family",
+      "has guarded ten sacred",
+      "MAGICAL GOLDEN DOGS",
+      "",
+      "These enchanted pups hold the",
+      "power that keeps the kingdom",
+      "safe from darkness.",
+      "",
+      "But on a stormy night,",
+      "the Shadow King unleashed",
+      "his army of monsters",
+      "upon Snider Castle.",
+      "",
+      "In the chaos, all ten",
+      "Golden Dogs escaped",
+      "into the cursed mazes",
+      "that surround the kingdom.",
+      "",
+      "King Jason has commanded:",
+      "",
+      "\"Sir Hudson, you must venture",
+      "into the ten great mazes.",
+      "Face the monsters that lurk within.",
+      "Find every Golden Dog",
+      "and bring them back to the castle!\"",
+      "",
+      "Queen Heather added:",
+      "",
+      "\"Be brave, Sir Hudson.",
+      "The kingdom believes in you.",
+      "You are our only hope.\"",
+      "",
+      "",
+      "And so Sir Hudson drew his sword,",
+      "stepped through the castle gates,",
+      "and began his",
+      "",
+      "EPIC QUEST",
+      "",
+      "",
+      "",
+      "[ Press any key to begin ]",
+      "",
+    ];
 
     // ============ PORTAL WORLD CHALLENGE ============
     interface PortalChallenge {
@@ -33,7 +287,7 @@ export default function Game() {
       choices: string[];
       answer: string;
       reward: { type: string; label: string };
-      timeLimit: number; // ticks remaining
+      // no timer - take your time!
       failed: boolean;
     }
     let activeChallenge: PortalChallenge | null = null;
@@ -47,6 +301,18 @@ export default function Game() {
       { col: "#ffffff", name: "Cloud World", bg: "#2a3a4a", emoji: "\u2601\uFE0F" },
       { col: "#88ff88", name: "Ghost World", bg: "#1a2a1a", emoji: "\uD83D\uDC7B" },
       { col: "#ffaa00", name: "Kitchen World", bg: "#3a2a1a", emoji: "\uD83C\uDF73" },
+      { col: "#ff88cc", name: "Cat World", bg: "#3a1a2a", emoji: "\uD83D\uDC31" },
+      { col: "#cc8844", name: "Dog World", bg: "#2a1a0a", emoji: "\uD83D\uDC36" },
+      { col: "#00aaff", name: "Fish World", bg: "#0a1a4a", emoji: "\uD83D\uDC1F" },
+      { col: "#ffcc00", name: "Pizza World", bg: "#3a2a0a", emoji: "\uD83C\uDF55" },
+      { col: "#aa00aa", name: "Spider World", bg: "#1a0a1a", emoji: "\uD83D\uDD77\uFE0F" },
+      { col: "#ff0044", name: "Superhero World", bg: "#1a0a2a", emoji: "\uD83E\uDDB8" },
+      { col: "#4488ff", name: "Hudson World", bg: "#0a1a3a", emoji: "\uD83D\uDC51" },
+      { col: "#ff8844", name: "Jason World", bg: "#3a1a0a", emoji: "\uD83D\uDC68" },
+      { col: "#ff66bb", name: "Heather World", bg: "#3a0a2a", emoji: "\uD83D\uDC78" },
+      { col: "#ffcc88", name: "Mom World", bg: "#2a1a2a", emoji: "\uD83D\uDC69" },
+      { col: "#8888ff", name: "Dad World", bg: "#1a1a3a", emoji: "\uD83D\uDC68\u200D\uD83D\uDCBC" },
+      { col: "#ffff88", name: "Kid World", bg: "#2a2a1a", emoji: "\uD83E\uDDD2" },
     ];
 
     // Challenge generators per type
@@ -140,25 +406,23 @@ export default function Game() {
     function generateChallenge(): { type: string; question: string; choices: string[]; answer: string } {
       // Levels 1-3: shooting, agility, math
       // Levels 4+: add riddle, memory, speed, code, survival
-      const basicTypes = ["shooting", "agility", "math"];
-      const advancedTypes = ["riddle", "memory", "speed", "code", "survival"];
+      const basicTypes = ["shooting", "agility", "riddle"];
+      const advancedTypes = ["memory", "speed", "code", "survival"];
       let pool = [...basicTypes];
       if (level >= 4) pool = [...pool, ...advancedTypes];
       const type = pool[Math.floor(Math.random() * pool.length)];
-      let c;
+      let c: { q: string; ch: string[]; ans: string } = makeRiddleChallenge();
       switch (type) {
         case "shooting": c = makeShootingChallenge(); break;
         case "agility": c = makeAgilityChallenge(); break;
-        case "math": c = makeMathChallenge(); break;
         case "riddle": c = makeRiddleChallenge(); break;
         case "memory": c = makeMemoryChallenge(); break;
         case "speed": c = makeSpeedChallenge(); break;
         case "code": c = makeCodeChallenge(); break;
         case "survival": c = makeSurvivalChallenge(); break;
-        default: c = makeMathChallenge();
       }
       // Shuffle choices
-      c.choices.sort(() => Math.random() - 0.5);
+      if (c && c.ch) c.ch.sort(() => Math.random() - 0.5);
       return { type, ...c };
     }
 
@@ -176,11 +440,11 @@ export default function Game() {
     }
 
     function enterPortalWorld(portal: Portal) {
-      const world = PORTAL_WORLDS.find(w => w.name === portal.name) || { col: portal.col, name: portal.name, bg: "#1a1a2a", emoji: "\uD83C\uDF00" };
-      const challenge = generateChallenge();
-      const reward = generateReward();
-      activeChallenge = { world, ...challenge, reward, timeLimit: 600, failed: false }; // 10 sec
-      gameState = "portalWorld";
+      // Pick a random world (any world, not necessarily the portal's color)
+      const world = PORTAL_WORLDS[Math.floor(Math.random() * PORTAL_WORLDS.length)];
+      portalTravelWorld = world;
+      portalTravelTimer = 180; // ~3 sec travel transition
+      gameState = "portalTravel";
     }
 
     function applyReward(reward: { type: string; label: string }) {
@@ -206,6 +470,7 @@ export default function Game() {
       x: number; y: number; lives: number; arrows: number;
       weapon: Weapon | null; magic: string | null; magicUses: number;
       armor: number; flash: number; facing: string;
+      thirst: number; // 0-100, 0 = thirsty/dying
     }
     interface Monster {
       id: number; name: string; shape: string; col: string; eye: string;
@@ -284,7 +549,7 @@ export default function Game() {
           [1,1,1,0,1,0,1,1,0,1,0,1,0,1],
           [1,5,0,0,0,0,1,6,0,0,0,1,0,1],
           [1,0,1,1,1,1,1,1,1,1,0,1,0,1],
-          [1,0,0,0,0,0,0,0,0,0,0,1,0,1],
+          [1,0,0,0,0,0,7,0,0,0,0,1,0,1],
           [1,1,1,0,1,1,0,1,1,1,1,1,0,1],
           [1,4,0,0,0,1,0,0,0,0,3,0,0,1],
           [1,0,1,1,0,1,0,1,1,1,1,1,1,1],
@@ -297,7 +562,7 @@ export default function Game() {
           [1,1,0,1,0,0,1,0,1,0,0,0,1,1],
           [1,0,0,0,0,1,1,0,1,1,1,0,0,1],
           [1,0,1,1,0,0,0,0,0,0,0,0,1,1],
-          [1,0,1,5,0,1,1,1,1,7,1,0,0,1],
+          [1,0,1,5,0,1,1,1,1,0,1,0,0,1],
           [1,0,0,0,1,1,0,0,0,0,1,1,0,1],
           [1,1,1,0,0,0,0,1,4,0,0,0,0,1],
           [1,3,0,0,1,1,0,1,1,1,1,1,0,1],
@@ -309,7 +574,7 @@ export default function Game() {
           [1,0,0,0,0,1,0,0,0,0,1,3,0,1],
           [1,1,1,1,0,1,0,1,1,0,1,0,1,1],
           [1,5,0,0,0,0,0,1,0,0,0,0,0,1],
-          [1,0,1,1,1,1,1,1,0,1,7,1,1,1],
+          [1,0,1,1,1,1,1,1,0,1,0,1,1,1],
           [1,0,0,0,0,0,0,0,0,1,0,0,0,1],
           [1,1,1,1,1,0,1,1,1,1,0,1,0,1],
           [1,4,0,0,0,0,1,6,0,0,0,1,0,1],
@@ -338,7 +603,7 @@ export default function Game() {
           [1,0,0,0,0,1,1,1,1,0,0,0,0,1],
           [1,1,1,1,0,0,5,0,1,0,1,1,0,1],
           [1,0,0,0,0,1,1,0,0,0,0,0,0,1],
-          [1,0,1,1,7,1,4,0,1,1,1,1,0,1],
+          [1,0,1,1,0,1,4,0,1,1,1,1,0,1],
           [1,0,0,0,0,0,0,0,0,6,0,0,0,1],
           [1,1,1,1,1,1,3,0,1,0,0,1,0,2],
         ],
@@ -350,7 +615,7 @@ export default function Game() {
           [1,0,3,0,0,0,0,0,0,0,1,1,0,1],
           [1,0,1,1,1,0,1,1,1,0,0,0,0,1],
           [1,0,0,0,1,0,0,0,1,0,1,1,0,1],
-          [1,1,1,0,1,1,7,0,0,0,0,1,0,1],
+          [1,1,1,0,1,1,0,0,0,0,0,1,0,1],
           [1,4,0,0,0,0,0,1,1,1,0,0,0,1],
           [1,0,1,1,1,1,0,0,6,0,0,1,0,1],
           [1,0,0,3,0,0,0,1,0,1,0,0,0,2],
@@ -374,7 +639,7 @@ export default function Game() {
           [1,0,0,0,0,1,0,3,0,0,0,0,0,1],
           [1,1,1,1,0,1,0,1,1,0,1,1,0,1],
           [1,5,0,0,0,0,0,1,0,0,0,1,0,1],
-          [1,0,1,0,1,1,7,1,0,1,0,1,0,1],
+          [1,0,1,0,1,1,0,1,0,1,0,1,0,1],
           [1,0,1,0,0,0,0,0,0,1,0,0,0,1],
           [1,0,1,1,1,1,1,0,1,1,1,1,0,1],
           [1,0,0,4,0,0,0,0,0,0,6,0,0,1],
@@ -387,9 +652,10 @@ export default function Game() {
 
     // ============ BUILD LEVEL ============
     function makeMonsters(lv: number, map: number[][]): Monster[] {
-      const count = 2 + lv;
+      // Difficulty graduates slower after level 5
+      const count = lv <= 5 ? 2 + lv : 7 + Math.floor((lv - 5) * 0.7);
       const ms: Monster[] = [];
-      const hpMult = 0.8 + (lv - 1) * 0.2;
+      const hpMult = lv <= 5 ? 0.8 + (lv - 1) * 0.2 : 1.6 + (lv - 5) * 0.12;
       // Find all path tiles to place monsters on
       const paths: [number, number][] = [];
       for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) {
@@ -428,6 +694,15 @@ export default function Game() {
           pickups.push({ x: paths[i][0], y: paths[i][1], type: "arrows", taken: false });
         }
       }
+      // Scatter water pickups (important — thirst drops over time!)
+      const waterCount = 3 + Math.floor(level / 2);
+      let placed = 0;
+      for (let i = arrowCount; i < paths.length && placed < waterCount; i++) {
+        if (!pickups.some(p => p.x === paths[i][0] && p.y === paths[i][1])) {
+          pickups.push({ x: paths[i][0], y: paths[i][1], type: "water", taken: false });
+          placed++;
+        }
+      }
       return pickups;
     }
 
@@ -462,7 +737,7 @@ export default function Game() {
     let pickups: Pickup[] = makePickups(map);
     let portals: Portal[] = makePortals(map);
     let monsters: Monster[] = makeMonsters(1, map);
-    const player: Player = { x: 0, y: 0, lives: 5, arrows: 3, weapon: WEAPONS[0], magic: null, magicUses: 0, armor: 0, flash: 0, facing: "right" };
+    const player: Player = { x: 0, y: 0, lives: 5, arrows: 3, weapon: WEAPONS[0], magic: null, magicUses: 0, armor: 0, flash: 0, facing: "right", thirst: 100 };
 
     function startLevel(lv: number) {
       level = lv;
@@ -472,10 +747,14 @@ export default function Game() {
       portals = makePortals(map);
       monsters = makeMonsters(lv, map);
       player.x = 0; player.y = 0; player.armor = 0; player.flash = 0;
+      smokePuffs = [];
+      petTrail.length = 0;
+      levelClock = LEVEL_TIMES[Math.min(lv - 1, LEVEL_TIMES.length - 1)];
       // Keep weapon and magic between levels
       gameState = "playing";
       updH();
-      setMsg(`Level ${lv}! Find the Magical Golden Chicken!`);
+      const secs = Math.ceil(levelClock / 60);
+      setMsg(`Level ${lv}! ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} to find the Golden Dog!`);
     }
 
     // ============ TILE DRAWING ============
@@ -505,10 +784,10 @@ export default function Game() {
         const px = p.x * S, py = p.y * S;
         const b = Math.sin(tick / 12 + p.x + p.y) * 2;
         X.font = "18px monospace"; X.textAlign = "center";
-        const icons: Record<string, string> = { food: "\uD83C\uDF54", weapon: "\u2694\uFE0F", magic: "\uD83E\uDE84", armor: "\uD83D\uDEE1\uFE0F", arrows: "\uD83C\uDFF9" };
+        const icons: Record<string, string> = { food: "\uD83C\uDF54", weapon: "\u2694\uFE0F", magic: "\uD83E\uDE84", armor: "\uD83D\uDEE1\uFE0F", arrows: "\uD83C\uDFF9", water: "\uD83D\uDCA7" };
         X.fillText(icons[p.type] || "?", px + S / 2, py + S / 2 + 6 + b);
         X.textAlign = "left";
-        const glows: Record<string, string> = { food: "#ffaa00", weapon: "#ff4400", magic: "#aa00ff", armor: "#0088ff", arrows: "#88ff44" };
+        const glows: Record<string, string> = { food: "#ffaa00", weapon: "#ff4400", magic: "#aa00ff", armor: "#0088ff", arrows: "#88ff44", water: "#00ccff" };
         X.save(); X.shadowColor = glows[p.type] || "#fff"; X.shadowBlur = 6 + Math.sin(tick / 8) * 3;
         X.fillStyle = "rgba(255,255,255,0.08)"; X.beginPath(); X.arc(px + S / 2, py + S / 2 + b, 12, 0, Math.PI * 2); X.fill();
         X.restore();
@@ -560,42 +839,138 @@ export default function Game() {
     }
 
     // ============ DRAW CHICKEN ============
+    function drawPetDog() {
+      // Pet dog follows 6 steps behind Hudson on the trail
+      let tx = player.x, ty = player.y;
+      if (petTrail.length >= 6) {
+        const pos = petTrail[petTrail.length - 6];
+        tx = pos.x; ty = pos.y;
+      } else if (petTrail.length > 0) {
+        const pos = petTrail[0];
+        tx = pos.x; ty = pos.y;
+      } else {
+        // If no trail yet, sit next to player
+        tx = Math.max(0, player.x - 1);
+        ty = player.y;
+      }
+      const px = tx * S, py = ty * S;
+      const b = Math.sin(tick / 6) * 2;
+      const wag = Math.sin(tick / 3) * 4;
+      X.save();
+      // Body
+      X.fillStyle = "#b07030"; // brown
+      X.beginPath(); X.ellipse(px + S / 2, py + S / 2 + 4 + b, 9, 6, 0, 0, Math.PI * 2); X.fill();
+      // Legs
+      X.fillStyle = "#805020";
+      X.fillRect(px + S / 2 - 7, py + S / 2 + 8 + b, 2, 4);
+      X.fillRect(px + S / 2 - 3, py + S / 2 + 8 + b, 2, 4);
+      X.fillRect(px + S / 2 + 2, py + S / 2 + 8 + b, 2, 4);
+      X.fillRect(px + S / 2 + 6, py + S / 2 + 8 + b, 2, 4);
+      // Tail (wagging!)
+      X.fillStyle = "#b07030";
+      X.beginPath();
+      X.moveTo(px + S / 2 + 8, py + S / 2 + 2 + b);
+      X.lineTo(px + S / 2 + 12 + wag, py + S / 2 - 2 + b);
+      X.lineTo(px + S / 2 + 11 + wag, py + S / 2 + 4 + b);
+      X.closePath(); X.fill();
+      // Head
+      X.fillStyle = "#c08040";
+      X.beginPath(); X.arc(px + S / 2 - 6, py + S / 2 - 2 + b, 6, 0, Math.PI * 2); X.fill();
+      // Floppy ears
+      X.fillStyle = "#805020";
+      X.beginPath(); X.ellipse(px + S / 2 - 10, py + S / 2 - 1 + b, 2, 4, 0, 0, Math.PI * 2); X.fill();
+      X.beginPath(); X.ellipse(px + S / 2 - 3, py + S / 2 - 1 + b, 2, 4, 0, 0, Math.PI * 2); X.fill();
+      // Snout
+      X.fillStyle = "#d0a060";
+      X.beginPath(); X.ellipse(px + S / 2 - 10, py + S / 2 + 1 + b, 3, 2, 0, 0, Math.PI * 2); X.fill();
+      // Nose
+      X.fillStyle = "#111";
+      X.beginPath(); X.arc(px + S / 2 - 12, py + S / 2 + b, 1, 0, Math.PI * 2); X.fill();
+      // Eye
+      X.fillStyle = "#111";
+      X.beginPath(); X.arc(px + S / 2 - 7, py + S / 2 - 3 + b, 1, 0, Math.PI * 2); X.fill();
+      // Label
+      X.fillStyle = "#ffaa44"; X.font = "bold 6px monospace"; X.textAlign = "center";
+      X.fillText("BUDDY", px + S / 2, py + S - 1); X.textAlign = "left";
+      X.restore();
+    }
+
     function drawChicken() {
       const px = chicken.x * S, py = chicken.y * S;
-      const b = Math.sin(tick / 8) * 3;
-      const glow = 10 + Math.sin(tick / 6) * 8;
+      const b = Math.sin(tick / 8) * 2;
+      const glow = 12 + Math.sin(tick / 6) * 8;
+      const wag = Math.sin(tick / 4) * 4;
       X.save();
       X.shadowColor = "#ffcc00"; X.shadowBlur = glow;
       // Golden glow circle
       X.fillStyle = `rgba(255,204,0,${0.15 + Math.sin(tick / 10) * 0.1})`;
       X.beginPath(); X.arc(px + S / 2, py + S / 2, S / 2, 0, Math.PI * 2); X.fill();
-      // Body
+      // Golden Dog!
+      const cx = px + S / 2, cy = py + S / 2;
+      // Wagging tail (behind body)
+      X.fillStyle = "#e6b800";
+      X.beginPath();
+      X.moveTo(cx - 10, cy + 4 + b);
+      X.lineTo(cx - 16 - wag, cy - 2 + b);
+      X.lineTo(cx - 14 - wag, cy + 6 + b);
+      X.closePath(); X.fill();
+      // Body (ellipse)
+      X.fillStyle = "#e6b800";
+      X.beginPath(); X.ellipse(cx, cy + 4 + b, 12, 8, 0, 0, Math.PI * 2); X.fill();
+      // Legs (4 small stubs)
+      X.fillStyle = "#cc9900";
+      X.fillRect(cx - 9, cy + 9 + b, 3, 5);
+      X.fillRect(cx - 4, cy + 9 + b, 3, 5);
+      X.fillRect(cx + 1, cy + 9 + b, 3, 5);
+      X.fillRect(cx + 6, cy + 9 + b, 3, 5);
+      // Head (circle, front-upper)
       X.fillStyle = "#ffcc00";
-      X.beginPath(); X.arc(px + S / 2, py + S / 2 + 2 + b, 11, 0, Math.PI * 2); X.fill();
-      // Head
-      X.beginPath(); X.arc(px + S / 2, py + S / 2 - 8 + b, 8, 0, Math.PI * 2); X.fill();
-      // Beak
-      X.fillStyle = "#ff8800";
-      X.beginPath(); X.moveTo(px + S / 2, py + S / 2 - 6 + b); X.lineTo(px + S / 2 - 4, py + S / 2 - 2 + b); X.lineTo(px + S / 2 + 4, py + S / 2 - 2 + b); X.closePath(); X.fill();
-      // Eyes
-      X.fillStyle = "#111"; X.beginPath(); X.arc(px + S / 2 - 3, py + S / 2 - 10 + b, 2, 0, Math.PI * 2); X.fill();
-      X.beginPath(); X.arc(px + S / 2 + 3, py + S / 2 - 10 + b, 2, 0, Math.PI * 2); X.fill();
-      // Crown
+      X.beginPath(); X.arc(cx + 6, cy - 5 + b, 7, 0, Math.PI * 2); X.fill();
+      // Floppy ears (droopy triangles on sides of head)
+      X.fillStyle = "#cc9900";
+      X.beginPath();
+      X.moveTo(cx + 2, cy - 9 + b);
+      X.lineTo(cx - 1, cy - 2 + b);
+      X.lineTo(cx + 4, cy - 4 + b);
+      X.closePath(); X.fill();
+      X.beginPath();
+      X.moveTo(cx + 10, cy - 9 + b);
+      X.lineTo(cx + 13, cy - 2 + b);
+      X.lineTo(cx + 8, cy - 4 + b);
+      X.closePath(); X.fill();
+      // Snout (oval front of head)
+      X.fillStyle = "#ffdd33";
+      X.beginPath(); X.ellipse(cx + 11, cy - 3 + b, 4, 3, 0, 0, Math.PI * 2); X.fill();
+      // Nose (black dot on snout)
+      X.fillStyle = "#111";
+      X.beginPath(); X.arc(cx + 13, cy - 4 + b, 1.5, 0, Math.PI * 2); X.fill();
+      // Eyes (cute dots with shine)
+      X.fillStyle = "#111";
+      X.beginPath(); X.arc(cx + 3, cy - 6 + b, 1.5, 0, Math.PI * 2); X.fill();
+      X.beginPath(); X.arc(cx + 8, cy - 7 + b, 1.5, 0, Math.PI * 2); X.fill();
+      X.fillStyle = "#fff";
+      X.beginPath(); X.arc(cx + 2.5, cy - 6.5 + b, 0.6, 0, Math.PI * 2); X.fill();
+      X.beginPath(); X.arc(cx + 7.5, cy - 7.5 + b, 0.6, 0, Math.PI * 2); X.fill();
+      // Crown on top of head
       X.fillStyle = "#ffaa00";
-      X.beginPath(); X.moveTo(px + S / 2 - 6, py + S / 2 - 14 + b); X.lineTo(px + S / 2 - 4, py + S / 2 - 20 + b);
-      X.lineTo(px + S / 2, py + S / 2 - 16 + b); X.lineTo(px + S / 2 + 4, py + S / 2 - 20 + b);
-      X.lineTo(px + S / 2 + 6, py + S / 2 - 14 + b); X.closePath(); X.fill();
+      X.beginPath();
+      X.moveTo(cx + 1, cy - 11 + b);
+      X.lineTo(cx + 3, cy - 16 + b);
+      X.lineTo(cx + 6, cy - 13 + b);
+      X.lineTo(cx + 9, cy - 16 + b);
+      X.lineTo(cx + 11, cy - 11 + b);
+      X.closePath(); X.fill();
       // Sparkles
-      for (let i = 0; i < 6; i++) {
-        const sx = px + S / 2 + Math.sin(tick / 6 + i * 1.1) * 16;
-        const sy = py + S / 2 + Math.cos(tick / 5 + i * 1.3) * 14;
+      for (let i = 0; i < 8; i++) {
+        const sx = cx + Math.sin(tick / 6 + i * 0.8) * 18;
+        const sy = cy + Math.cos(tick / 5 + i * 1.1) * 16;
         const sa = 0.3 + Math.sin(tick / 4 + i) * 0.3;
         X.fillStyle = `rgba(255,255,100,${sa})`;
         X.beginPath(); X.arc(sx, sy, 1.5, 0, Math.PI * 2); X.fill();
       }
       X.restore();
-      X.fillStyle = "#ffcc00"; X.font = "bold 7px monospace"; X.textAlign = "center";
-      X.fillText("GOLDEN CHICKEN!", px + S / 2, py + S - 1); X.textAlign = "left";
+      X.fillStyle = "#ffcc00"; X.font = "bold 6px monospace"; X.textAlign = "center";
+      X.fillText("GOLDEN DOG", px + S / 2, py + S - 1); X.textAlign = "left";
     }
 
     // ============ DRAW MONSTER ============
@@ -676,25 +1051,125 @@ export default function Game() {
         X.restore();
       }
       X.translate(px, py); X.scale(sc, sc);
-      // Hudson at 56px scale
-      X.fillStyle = "#f0d080"; X.fillRect(14, 18, 24, 22);
-      X.fillStyle = "#1a55dd"; X.fillRect(11, 10, 30, 16);
-      X.fillStyle = "#ffffff"; X.fillRect(13, 12, 26, 11);
-      X.fillStyle = "#66aaff"; X.fillRect(11, 10, 30, 5);
-      X.fillStyle = "#1a55dd"; X.fillRect(15, 6, 22, 7);
-      X.fillStyle = "#f0d080"; X.fillRect(18, 25, 5, 5); X.fillRect(29, 25, 5, 5);
-      X.fillStyle = "#1a44cc"; X.fillRect(10, 40, 32, 10);
-      X.fillStyle = "#f0d080"; X.fillRect(8, 26, 7, 13); X.fillRect(37, 26, 7, 13);
-      X.fillRect(12, 49, 10, 4); X.fillRect(30, 49, 10, 4);
+      // HUDSON — BLUE & RED KNIGHT with animated swinging arms
+      // Arm swing offset (animated)
+      const armSwing = Math.sin(tick / 6) * 4;
+      // Cape (blue with red trim, gentle sway)
+      const capeSway = Math.sin(tick / 14) * 2;
+      X.fillStyle = "#1a3a8a"; // deep blue cape
+      X.beginPath();
+      X.moveTo(14, 20);
+      X.lineTo(6 + capeSway, 46);
+      X.lineTo(22, 42);
+      X.closePath(); X.fill();
+      X.beginPath();
+      X.moveTo(42, 20);
+      X.lineTo(50 - capeSway, 46);
+      X.lineTo(34, 42);
+      X.closePath(); X.fill();
+      // Cape red trim
+      X.fillStyle = "#c62828";
+      X.fillRect(14, 20, 8, 2);
+      X.fillRect(34, 20, 8, 2);
+      // Legs (silver plate greaves)
+      X.fillStyle = "#a0a0a8";
+      X.fillRect(18, 40, 8, 12);
+      X.fillRect(30, 40, 8, 12);
+      X.fillStyle = "#c0c0c8";
+      X.fillRect(18, 44, 8, 2);
+      X.fillRect(30, 44, 8, 2);
+      // Boots
+      X.fillStyle = "#333";
+      X.fillRect(16, 50, 12, 4);
+      X.fillRect(28, 50, 12, 4);
+      X.fillStyle = "#555";
+      X.fillRect(16, 50, 12, 1);
+      X.fillRect(28, 50, 12, 1);
+      // Torso — split blue (left half) and red (right half) plate
+      X.fillStyle = "#1e49b8"; // blue side
+      X.fillRect(14, 18, 14, 24);
+      X.fillStyle = "#c62828"; // red side
+      X.fillRect(28, 18, 14, 24);
+      // Top highlight stripes
+      X.fillStyle = "#3a6ed0";
+      X.fillRect(14, 18, 14, 4);
+      X.fillStyle = "#e53935";
+      X.fillRect(28, 18, 14, 4);
+      // Center divider
+      X.fillStyle = "#ffd700";
+      X.fillRect(27, 18, 2, 24);
+      // Belt
+      X.fillStyle = "#5a3a10";
+      X.fillRect(14, 36, 28, 4);
+      X.fillStyle = "#ffcc00";
+      X.fillRect(26, 37, 4, 2); // buckle
+      // Gold star emblem on chest
+      X.fillStyle = "#ffd700";
+      X.fillRect(26, 26, 4, 8);
+      X.fillRect(22, 29, 12, 2);
+      X.beginPath();
+      X.moveTo(28, 23); X.lineTo(30, 27); X.lineTo(26, 27); X.closePath(); X.fill();
+      // Arms — left BLUE sleeve (animated swing)
+      X.fillStyle = "#1e49b8";
+      X.fillRect(6, 20 + armSwing, 8, 16);
+      X.fillStyle = "#3a6ed0";
+      X.fillRect(6, 20 + armSwing, 8, 3);
+      // Arms — right RED sleeve (opposite swing)
+      X.fillStyle = "#c62828";
+      X.fillRect(42, 20 - armSwing, 8, 16);
+      X.fillStyle = "#e53935";
+      X.fillRect(42, 20 - armSwing, 8, 3);
+      // Gauntlets (silver) — follow arm swing
+      X.fillStyle = "#b0b0b8";
+      X.fillRect(4, 34 + armSwing, 10, 6);
+      X.fillRect(42, 34 - armSwing, 10, 6);
+      // Shield on left arm (BLUE with gold trim)
+      X.fillStyle = "#ffd700";
+      X.beginPath();
+      X.moveTo(0, 22 + armSwing);
+      X.lineTo(0, 38 + armSwing);
+      X.lineTo(4, 42 + armSwing);
+      X.lineTo(8, 38 + armSwing);
+      X.lineTo(8, 22 + armSwing);
+      X.closePath(); X.fill();
+      X.fillStyle = "#1e49b8";
+      X.beginPath();
+      X.moveTo(1, 23 + armSwing);
+      X.lineTo(1, 37 + armSwing);
+      X.lineTo(4, 40 + armSwing);
+      X.lineTo(7, 37 + armSwing);
+      X.lineTo(7, 23 + armSwing);
+      X.closePath(); X.fill();
+      // Shield emblem (gold star)
+      X.fillStyle = "#ffd700";
+      X.fillRect(3, 28 + armSwing, 2, 6);
+      X.fillRect(1, 30 + armSwing, 6, 2);
+      // Helmet (silver closed helm)
+      X.fillStyle = "#c0c0c0";
+      X.beginPath(); X.arc(28, 12, 11, Math.PI, Math.PI * 2); X.fill();
+      X.fillRect(17, 12, 22, 6);
+      // Helmet side
+      X.fillStyle = "#a0a0a8";
+      X.fillRect(17, 14, 22, 4);
+      // Helmet visor slit (dark)
+      X.fillStyle = "#1a1a1a";
+      X.fillRect(20, 10, 16, 3);
+      // Blue & red plume on top
+      X.fillStyle = "#1e49b8";
+      X.fillRect(26, 1, 2, 4);
+      X.fillStyle = "#c62828";
+      X.fillRect(28, 1, 2, 4);
+      // Weapon (keep existing glow position)
       if (player.weapon) {
-        X.fillStyle = player.weapon.col; X.shadowColor = player.weapon.col; X.shadowBlur = 10;
-        X.fillRect(44, 22, 5, 22); X.fillRect(38, 20, 17, 5);
-        X.shadowBlur = 0;
+        X.save(); X.shadowColor = player.weapon.col; X.shadowBlur = 14;
+        X.fillStyle = player.weapon.col;
+        X.fillRect(50, 12, 5, 26); X.fillRect(46, 10, 13, 4);
+        X.restore();
       }
       X.setTransform(1, 0, 0, 1, 0, 0);
       // Name
-      X.fillStyle = "#88ccff"; X.font = "bold 7px monospace"; X.textAlign = "center";
-      X.fillText("Hudson", px + S / 2, py + 3); X.textAlign = "left";
+      X.fillStyle = "#ffcc00"; X.font = "bold 7px monospace"; X.textAlign = "center";
+      X.fillText("HUDSON", px + S / 2, py + 3); X.textAlign = "left";
       X.restore();
     }
 
@@ -706,7 +1181,7 @@ export default function Game() {
       X.fillText(`LEVEL ${level} COMPLETE!`, CV.width / 2, 100);
       X.shadowBlur = 0;
       X.fillStyle = "#88ff88"; X.font = "14px monospace";
-      X.fillText("You found the Magical Golden Chicken!", CV.width / 2, 140);
+      X.fillText("You found the Golden Dog!", CV.width / 2, 140);
       X.fillStyle = "#fff"; X.font = "12px monospace";
       X.fillText(`Score: ${score}`, CV.width / 2, 175);
       X.fillStyle = "#ffcc00"; X.font = "bold 14px monospace";
@@ -753,7 +1228,7 @@ export default function Game() {
       X.fillStyle = "#fff"; X.font = "16px monospace";
       X.fillText(`Final Score: ${score}`, CV.width / 2, 180);
       X.fillStyle = "#88ff88"; X.font = "12px monospace";
-      X.fillText("The Magical Golden Chicken is safe!", CV.width / 2, 220);
+      X.fillText("The Golden Dogs are safe!", CV.width / 2, 220);
       X.fillText("Hudson saved everything!", CV.width / 2, 245);
       X.fillStyle = "#ffcc00"; X.font = "bold 11px monospace";
       X.fillText("Press any key to play again!", CV.width / 2, 290);
@@ -762,7 +1237,7 @@ export default function Game() {
 
     // ============ MONSTER AI ============
     function moveMonsters() {
-      const speed = Math.max(20, 50 - level * 3);
+      const speed = level <= 5 ? Math.max(30, 50 - level * 4) : Math.max(22, 30 - (level - 5) * 1.5);
       monsters.forEach(m => {
         if (!m.alive) return;
         if (tick - m.lastMove < speed) return;
@@ -784,7 +1259,7 @@ export default function Game() {
 
     // ============ MONSTER ATTACKS ============
     function monsterAttacks() {
-      const interval = Math.max(80, 150 - level * 7);
+      const interval = level <= 5 ? Math.max(90, 150 - level * 10) : Math.max(70, 100 - (level - 5) * 5);
       if (tick % interval !== 0) return;
       if (player.lives <= 0) return;
       monsters.forEach(m => {
@@ -854,15 +1329,11 @@ export default function Game() {
       // Reward preview
       X.fillStyle = "#ffcc00"; X.font = "bold 11px monospace";
       X.fillText(`Reward: ${ch.reward.label}`, CV.width / 2, lineY + 30);
-      // Timer bar
-      ch.timeLimit--;
-      const pct = Math.max(0, ch.timeLimit / 600);
-      X.fillStyle = "#333"; X.fillRect(CV.width / 2 - 100, lineY + 42, 200, 8);
-      X.fillStyle = pct > 0.3 ? "#00cc44" : "#ff3300"; X.fillRect(CV.width / 2 - 100, lineY + 42, 200 * pct, 8);
-      X.fillStyle = "#999"; X.font = "9px monospace";
-      X.fillText(`Time: ${Math.ceil(ch.timeLimit / 60)}s`, CV.width / 2, lineY + 62);
+      // Take your time message
+      X.fillStyle = "#88ff88"; X.font = "10px monospace";
+      X.fillText("Take your time! No rush.", CV.width / 2, lineY + 50);
       // Choices as buttons (draw on canvas, click handled separately)
-      const choiceY = lineY + 80;
+      const choiceY = lineY + 65;
       const choiceW = 120, choiceH = 32, gap = 8;
       const cols = 2;
       ch.choices.forEach((c, i) => {
@@ -879,11 +1350,6 @@ export default function Game() {
         X.fillText("WRONG! No reward this time.", CV.width / 2, CV.height - 40);
         X.fillStyle = "#999"; X.font = "11px monospace";
         X.fillText("Press any key to return...", CV.width / 2, CV.height - 20);
-      }
-      // Time ran out
-      if (ch.timeLimit <= 0 && !ch.failed) {
-        ch.failed = true;
-        setMsg("Time's up! No reward.");
       }
       X.textAlign = "left";
     }
@@ -926,7 +1392,7 @@ export default function Game() {
         if (X.measureText(test).width > CV.width - 60) { line = word + " "; lineY += 18; }
         else { line = test; }
       }
-      const choiceY = lineY + 80;
+      const choiceY = lineY + 65;
       const choiceW = 120, choiceH = 32, gap = 8, cols = 2;
       activeChallenge.choices.forEach((c, i) => {
         const cx = CV.width / 2 + (i % cols === 0 ? -(choiceW + gap / 2) : gap / 2);
@@ -937,23 +1403,461 @@ export default function Game() {
       });
     });
 
+    // ============ SMOKE PUFFS ============
+    function drawSmokePuffs() {
+      smokePuffs = smokePuffs.filter(p => p.life > 0);
+      smokePuffs.forEach(p => {
+        const progress = 1 - p.life / p.maxLife;
+        const alpha = 0.7 * (1 - progress);
+        const radius = 6 + progress * 18;
+        X.save();
+        // Multiple expanding circles for puff effect
+        for (let i = 0; i < 5; i++) {
+          const ox = Math.sin(i * 1.3 + p.life * 0.2) * progress * 10;
+          const oy = Math.cos(i * 1.7 + p.life * 0.3) * progress * 8 - progress * 12;
+          X.fillStyle = `rgba(180,180,180,${alpha * (1 - i * 0.15)})`;
+          X.beginPath(); X.arc(p.x + ox, p.y + oy, Math.max(1, radius - i * 2), 0, Math.PI * 2); X.fill();
+        }
+        X.restore();
+        p.life--;
+      });
+    }
+
+    // ============ MINI-GAME SYSTEM ============
+    function startMiniGame(world: MiniGameState["world"]) {
+      // Build 3 hats, one with the ball
+      const ballIdx = Math.floor(Math.random() * 3);
+      const hats: Hat[] = HAT_XS.map((x, i) => ({ x, hasBall: i === ballIdx }));
+      miniGame = {
+        type: "hatshuffle",
+        world,
+        phase: "showing",
+        hats,
+        shuffleStep: 0,
+        shuffleTotal: 0,
+        swapFrom: 0,
+        swapTo: 0,
+        swapProgress: 0,
+        revealTimer: 120, // ~2 sec at 60fps
+        resultTimer: 0,
+        won: false,
+      };
+      gameState = "miniGame";
+    }
+
+    function pickShufflePair(mg: MiniGameState) {
+      mg.swapFrom = Math.floor(Math.random() * 3);
+      do { mg.swapTo = Math.floor(Math.random() * 3); } while (mg.swapTo === mg.swapFrom);
+      mg.swapProgress = 0;
+    }
+
+    function drawHat(x: number, y: number, raised: boolean = false) {
+      const ry = raised ? y - 24 : y;
+      // Brim (ellipse)
+      X.fillStyle = "#1a1a1a";
+      X.beginPath(); X.ellipse(x, ry + 20, 28, 6, 0, 0, Math.PI * 2); X.fill();
+      // Hat top (trapezoid)
+      X.fillStyle = "#2a2a2a";
+      X.beginPath();
+      X.moveTo(x - 18, ry + 20);
+      X.lineTo(x - 14, ry - 12);
+      X.lineTo(x + 14, ry - 12);
+      X.lineTo(x + 18, ry + 20);
+      X.closePath(); X.fill();
+      // Hat band
+      X.fillStyle = "#8a0000";
+      X.fillRect(x - 17, ry + 14, 34, 4);
+      // Highlight stripe
+      X.fillStyle = "#3a3a3a";
+      X.fillRect(x - 12, ry - 10, 2, 28);
+    }
+
+    function drawBall(x: number, y: number) {
+      // Red ball with shine
+      X.save(); X.shadowColor = "#ff3030"; X.shadowBlur = 8;
+      X.fillStyle = "#ff3030";
+      X.beginPath(); X.arc(x, y, 10, 0, Math.PI * 2); X.fill();
+      X.restore();
+      X.fillStyle = "#ff8080";
+      X.beginPath(); X.arc(x - 3, y - 3, 3.5, 0, Math.PI * 2); X.fill();
+    }
+
+    function drawPortalTravel() {
+      if (!portalTravelWorld) { gameState = "playing"; return; }
+      const w = portalTravelWorld;
+      // Tunnel-like animated background
+      X.fillStyle = w.bg; X.fillRect(0, 0, CV.width, CV.height);
+      const cx = CV.width / 2, cy = CV.height / 2;
+      // Concentric rings zooming out
+      for (let r = 0; r < 12; r++) {
+        const ring = ((tick * 3 + r * 40) % 400);
+        const alpha = 1 - ring / 400;
+        X.strokeStyle = w.col;
+        X.globalAlpha = alpha * 0.6;
+        X.lineWidth = 3;
+        X.beginPath(); X.arc(cx, cy, ring, 0, Math.PI * 2); X.stroke();
+      }
+      X.globalAlpha = 1;
+      // Center glow
+      X.save(); X.shadowColor = w.col; X.shadowBlur = 40 + Math.sin(tick / 5) * 10;
+      X.fillStyle = w.col;
+      X.font = "bold 36px monospace"; X.textAlign = "center";
+      X.fillText(w.emoji, cx, cy - 10);
+      X.restore();
+      // World name
+      X.save(); X.shadowColor = w.col; X.shadowBlur = 20;
+      X.fillStyle = "#ffffff"; X.font = "bold 24px monospace"; X.textAlign = "center";
+      X.fillText("Traveling to", cx, cy + 30);
+      X.fillStyle = w.col; X.font = "bold 28px monospace";
+      X.fillText(w.name.toUpperCase(), cx, cy + 65);
+      X.restore();
+      X.textAlign = "left";
+      portalTravelTimer--;
+      if (portalTravelTimer <= 0 && portalTravelWorld) {
+        startMiniGame(portalTravelWorld);
+        portalTravelWorld = null;
+      }
+    }
+
+    function drawMiniGame() {
+      if (!miniGame) return;
+      const mg = miniGame;
+      // Background
+      X.fillStyle = mg.world.bg; X.fillRect(0, 0, CV.width, CV.height);
+      // World-themed floating particles
+      for (let i = 0; i < 20; i++) {
+        const px = (i * 53 + tick * 0.4) % CV.width;
+        const py = (i * 37 + Math.sin(tick / 15 + i) * 20) % CV.height;
+        X.fillStyle = mg.world.col + "33";
+        X.beginPath(); X.arc(px, py, 2, 0, Math.PI * 2); X.fill();
+      }
+      // Title with emoji
+      X.save(); X.shadowColor = mg.world.col; X.shadowBlur = 10;
+      X.fillStyle = mg.world.col; X.font = "bold 14px monospace"; X.textAlign = "center";
+      X.fillText(`${mg.world.emoji} ${mg.world.name}`, CV.width / 2, 30);
+      X.restore();
+      X.fillStyle = "#ffcc00"; X.font = "bold 11px monospace"; X.textAlign = "center";
+      X.fillText("HAT SHUFFLE \u2014 Find the ball to win +1 Life!", CV.width / 2, 54);
+      X.textAlign = "left";
+
+      // Phase logic
+      if (mg.phase === "showing") {
+        // Draw 3 hats, raise the one with the ball
+        mg.hats.forEach(h => drawHat(h.x, HAT_Y, h.hasBall));
+        // Draw ball under the raised hat
+        const ballHat = mg.hats.find(h => h.hasBall);
+        if (ballHat) drawBall(ballHat.x, HAT_Y + 8);
+        // Status text
+        X.fillStyle = "#ffffff"; X.font = "bold 12px monospace"; X.textAlign = "center";
+        X.fillText("Watch carefully! The ball is under that hat...", CV.width / 2, 100);
+        X.textAlign = "left";
+        mg.revealTimer--;
+        if (mg.revealTimer <= 0) {
+          mg.shuffleTotal = 4 + Math.floor(Math.random() * 3); // 4-6 swaps
+          mg.shuffleStep = 0;
+          pickShufflePair(mg);
+          mg.phase = "shuffling";
+        }
+      } else if (mg.phase === "shuffling") {
+        // Interpolate positions of swapping hats
+        const fromHat = mg.hats[mg.swapFrom];
+        const toHat = mg.hats[mg.swapTo];
+        const fromStartX = HAT_XS[mg.swapFrom];
+        const toStartX = HAT_XS[mg.swapTo];
+        // Compute interpolated positions during animation
+        const p = Math.min(1, mg.swapProgress);
+        const ease = 0.5 - Math.cos(p * Math.PI) / 2; // smooth easing
+        // Draw all hats, override the two that are animating
+        mg.hats.forEach((h, i) => {
+          if (i === mg.swapFrom) {
+            const ax = fromStartX + (toStartX - fromStartX) * ease;
+            // Arc path to make it look like they're weaving
+            const ay = HAT_Y - Math.sin(p * Math.PI) * 30;
+            drawHat(ax, ay);
+          } else if (i === mg.swapTo) {
+            const ax = toStartX + (fromStartX - toStartX) * ease;
+            const ay = HAT_Y + Math.sin(p * Math.PI) * 30;
+            drawHat(ax, ay);
+          } else {
+            drawHat(h.x, HAT_Y);
+          }
+        });
+        // Status
+        X.fillStyle = "#ffffff"; X.font = "bold 12px monospace"; X.textAlign = "center";
+        X.fillText(`Shuffling... ${mg.shuffleStep + 1} / ${mg.shuffleTotal}`, CV.width / 2, 100);
+        X.textAlign = "left";
+        mg.swapProgress += 0.035;
+        if (mg.swapProgress >= 1) {
+          // Commit the swap — exchange positions AND hasBall stays with hats (objects swap in array)
+          const tmp = mg.hats[mg.swapFrom];
+          mg.hats[mg.swapFrom] = mg.hats[mg.swapTo];
+          mg.hats[mg.swapTo] = tmp;
+          // Reset each hat's x to its slot position
+          mg.hats.forEach((h, i) => { h.x = HAT_XS[i]; });
+          mg.shuffleStep++;
+          if (mg.shuffleStep >= mg.shuffleTotal) {
+            mg.phase = "guessing";
+          } else {
+            pickShufflePair(mg);
+          }
+        }
+      } else if (mg.phase === "guessing") {
+        mg.hats.forEach(h => drawHat(h.x, HAT_Y));
+        X.save(); X.shadowColor = "#ffcc00"; X.shadowBlur = 8;
+        X.fillStyle = "#ffcc00"; X.font = "bold 14px monospace"; X.textAlign = "center";
+        X.fillText("Click the hat with the ball!", CV.width / 2, 100);
+        X.restore();
+        X.textAlign = "left";
+      } else if (mg.phase === "done") {
+        // Draw all hats, reveal the ball under the correct one
+        mg.hats.forEach((h, i) => {
+          drawHat(h.x, HAT_Y, h.hasBall);
+        });
+        const ballHat = mg.hats.find(h => h.hasBall);
+        if (ballHat) drawBall(ballHat.x, HAT_Y + 8);
+        // Result text
+        X.fillStyle = "rgba(0,0,0,0.75)"; X.fillRect(0, CV.height / 2 - 40, CV.width, 90);
+        X.save();
+        X.shadowColor = mg.won ? "#00ff88" : "#ff4444"; X.shadowBlur = 12;
+        X.fillStyle = mg.won ? "#00ff88" : "#ff4444";
+        X.font = "bold 20px monospace"; X.textAlign = "center";
+        X.fillText(mg.won ? "\uD83C\uDF89 You Win! +1 Life!" : "\uD83D\uDE14 Wrong hat!", CV.width / 2, CV.height / 2);
+        X.restore();
+        X.fillStyle = "#fff"; X.font = "12px monospace"; X.textAlign = "center";
+        X.fillText(mg.won ? "A life has been added to your hearts!" : "Better luck next time...", CV.width / 2, CV.height / 2 + 25);
+        X.textAlign = "left";
+        mg.resultTimer--;
+        if (mg.resultTimer <= 0) {
+          miniGame = null;
+          gameState = "playing";
+        }
+      }
+    }
+
+    // Mini-game canvas click handler (Hat Shuffle)
+    CV.addEventListener("click", (e) => {
+      if (gameState !== "miniGame" || !miniGame || miniGame.phase !== "guessing") return;
+      const rect = CV.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (CV.width / rect.width);
+      const my = (e.clientY - rect.top) * (CV.height / rect.height);
+      // Hit-test hats
+      for (let i = 0; i < miniGame.hats.length; i++) {
+        const h = miniGame.hats[i];
+        if (mx >= h.x - 20 && mx <= h.x + 20 && my >= HAT_Y - 16 && my <= HAT_Y + 28) {
+          miniGame.won = h.hasBall;
+          miniGame.phase = "done";
+          miniGame.resultTimer = 180;
+          if (miniGame.won) {
+            player.lives = Math.min(5, player.lives + 1);
+            updH();
+          }
+          break;
+        }
+      }
+    });
+
+    // ============ DRAW INTRO ============
+    function drawIntro() {
+      X.fillStyle = "#050510"; X.fillRect(0, 0, CV.width, CV.height);
+      // Stars background
+      for (let i = 0; i < 40; i++) {
+        const sx = (i * 137 + tick * 0.02) % CV.width;
+        const sy = (i * 89) % CV.height;
+        const sa = 0.3 + Math.sin(tick / 20 + i) * 0.3;
+        X.fillStyle = `rgba(255,255,255,${sa})`;
+        X.beginPath(); X.arc(sx, sy, 1, 0, Math.PI * 2); X.fill();
+      }
+      // Draw Sir Hudson (large, centered at top)
+      const hx = CV.width / 2, hy = 50;
+      const pulse = Math.sin(tick / 20) * 3;
+      // Glow behind Hudson (red knight golden aura)
+      X.save(); X.shadowColor = "#ffd700"; X.shadowBlur = 25 + Math.sin(tick / 10) * 10;
+      X.fillStyle = "rgba(255,215,0,0.08)";
+      X.beginPath(); X.arc(hx, hy + 30, 52, 0, Math.PI * 2); X.fill();
+      X.restore();
+      // Red cape behind body
+      const capeSway2 = Math.sin(tick / 14) * 3;
+      X.fillStyle = "#8a0000";
+      X.beginPath();
+      X.moveTo(hx - 14, hy + 14 + pulse);
+      X.lineTo(hx - 28 + capeSway2, hy + 54 + pulse);
+      X.lineTo(hx - 4, hy + 46 + pulse);
+      X.closePath(); X.fill();
+      X.beginPath();
+      X.moveTo(hx + 14, hy + 14 + pulse);
+      X.lineTo(hx + 28 - capeSway2, hy + 54 + pulse);
+      X.lineTo(hx + 4, hy + 46 + pulse);
+      X.closePath(); X.fill();
+      // Legs — silver plate greaves
+      X.fillStyle = "#a0a0a8";
+      X.fillRect(hx - 12, hy + 38 + pulse, 10, 16);
+      X.fillRect(hx + 2, hy + 38 + pulse, 10, 16);
+      X.fillStyle = "#c0c0c8";
+      X.fillRect(hx - 12, hy + 44 + pulse, 10, 2);
+      X.fillRect(hx + 2, hy + 44 + pulse, 10, 2);
+      // Boots (dark metal)
+      X.fillStyle = "#333";
+      X.fillRect(hx - 14, hy + 52 + pulse, 14, 5);
+      X.fillRect(hx, hy + 52 + pulse, 14, 5);
+      X.fillStyle = "#555";
+      X.fillRect(hx - 14, hy + 52 + pulse, 14, 1);
+      X.fillRect(hx, hy + 52 + pulse, 14, 1);
+      // Torso — red chest plate
+      X.fillStyle = "#c62828";
+      X.fillRect(hx - 16, hy + 10 + pulse, 32, 28);
+      X.fillStyle = "#e53935";
+      X.fillRect(hx - 16, hy + 10 + pulse, 32, 5);
+      // Belt
+      X.fillStyle = "#5a3a10";
+      X.fillRect(hx - 16, hy + 34 + pulse, 32, 4);
+      X.fillStyle = "#ffcc00";
+      X.fillRect(hx - 2, hy + 35 + pulse, 4, 2);
+      // Gold cross emblem on chest
+      X.fillStyle = "#ffd700";
+      X.fillRect(hx - 2, hy + 18 + pulse, 4, 12);
+      X.fillRect(hx - 6, hy + 22 + pulse, 12, 4);
+      // Arms — red plate sleeves
+      X.fillStyle = "#c62828";
+      X.fillRect(hx - 28, hy + 12 + pulse, 12, 22);
+      X.fillRect(hx + 16, hy + 12 + pulse, 12, 22);
+      X.fillStyle = "#e53935";
+      X.fillRect(hx - 28, hy + 12 + pulse, 12, 4);
+      X.fillRect(hx + 16, hy + 12 + pulse, 12, 4);
+      // Gauntlets (silver)
+      X.fillStyle = "#b0b0b8";
+      X.fillRect(hx - 30, hy + 30 + pulse, 14, 8);
+      X.fillRect(hx + 16, hy + 30 + pulse, 14, 8);
+      // Shield on left arm (red with gold trim, cross)
+      X.fillStyle = "#ffd700";
+      X.beginPath();
+      X.moveTo(hx - 42, hy + 14 + pulse);
+      X.lineTo(hx - 42, hy + 34 + pulse);
+      X.lineTo(hx - 36, hy + 40 + pulse);
+      X.lineTo(hx - 30, hy + 34 + pulse);
+      X.lineTo(hx - 30, hy + 14 + pulse);
+      X.closePath(); X.fill();
+      X.fillStyle = "#c62828";
+      X.beginPath();
+      X.moveTo(hx - 41, hy + 15 + pulse);
+      X.lineTo(hx - 41, hy + 33 + pulse);
+      X.lineTo(hx - 36, hy + 38 + pulse);
+      X.lineTo(hx - 31, hy + 33 + pulse);
+      X.lineTo(hx - 31, hy + 15 + pulse);
+      X.closePath(); X.fill();
+      X.fillStyle = "#ffd700";
+      X.fillRect(hx - 37, hy + 20 + pulse, 2, 10);
+      X.fillRect(hx - 41, hy + 24 + pulse, 10, 2);
+      // Helmet (silver closed helm)
+      X.fillStyle = "#c0c0c0";
+      X.beginPath(); X.arc(hx, hy + 4 + pulse, 14, Math.PI, Math.PI * 2); X.fill();
+      X.fillRect(hx - 14, hy + 4 + pulse, 28, 8);
+      X.fillStyle = "#a0a0a8";
+      X.fillRect(hx - 14, hy + 7 + pulse, 28, 5);
+      // Visor slit (dark)
+      X.fillStyle = "#1a1a1a";
+      X.fillRect(hx - 10, hy + 2 + pulse, 20, 3);
+      // Red plume on top of helmet
+      X.fillStyle = "#c62828";
+      X.fillRect(hx - 2, hy - 10 + pulse, 4, 6);
+      X.fillStyle = "#e53935";
+      X.fillRect(hx - 1, hy - 10 + pulse, 2, 5);
+      // Name plate
+      X.save(); X.shadowColor = "#ffd700"; X.shadowBlur = 10;
+      X.fillStyle = "#ffd700"; X.font = "bold 11px monospace"; X.textAlign = "center";
+      X.fillText("SIR HUDSON", hx, hy + 72 + pulse);
+      X.restore();
+
+      // Scrolling text
+      introScroll += 0.4;
+      const startY = CV.height - introScroll + 100;
+      X.textAlign = "center";
+      INTRO_LINES.forEach((line, i) => {
+        const ly = startY + i * 22;
+        if (ly < -20 || ly > CV.height + 20) return;
+        // Fade at edges
+        const fade = Math.min(1, Math.min((ly - 70) / 40, (CV.height - ly) / 40));
+        if (fade <= 0) return;
+        if (["SIR HUDSON", "EPIC QUEST", "MAGICAL GOLDEN DOGS", "HOW TO PLAY", "\u2014 THE STORY \u2014"].includes(line)) {
+          X.save(); X.shadowColor = "#ffcc00"; X.shadowBlur = 12;
+          X.fillStyle = `rgba(255,204,0,${fade})`; X.font = "bold 18px monospace";
+          X.fillText(line, CV.width / 2, ly);
+          X.restore();
+        } else if (line.startsWith("\"") || line.startsWith("[ ")) {
+          X.fillStyle = `rgba(200,200,255,${fade})`; X.font = "italic 12px monospace";
+          X.fillText(line, CV.width / 2, ly);
+        } else if (line === "King Jason has commanded:" || line === "Queen Heather added:") {
+          X.fillStyle = `rgba(255,180,100,${fade})`; X.font = "bold 12px monospace";
+          X.fillText(line, CV.width / 2, ly);
+        } else {
+          X.fillStyle = `rgba(220,220,240,${fade})`; X.font = "12px monospace";
+          X.fillText(line, CV.width / 2, ly);
+        }
+      });
+      X.textAlign = "left";
+      // Top/bottom fade gradients
+      const gTop = X.createLinearGradient(0, 65, 0, 100);
+      gTop.addColorStop(0, "#050510"); gTop.addColorStop(1, "rgba(5,5,16,0)");
+      X.fillStyle = gTop; X.fillRect(0, 65, CV.width, 35);
+      const gBot = X.createLinearGradient(0, CV.height - 30, 0, CV.height);
+      gBot.addColorStop(0, "rgba(5,5,16,0)"); gBot.addColorStop(1, "#050510");
+      X.fillStyle = gBot; X.fillRect(0, CV.height - 30, CV.width, 30);
+    }
+
+    // ============ DRAW PAUSED ============
+    function drawPaused() {
+      // Draw game behind
+      for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) dt(x, y, map[y][x]);
+      drawPickups(); drawPortals(); drawChicken();
+      monsters.forEach(drawMonster); drawPlayer();
+      // Overlay
+      X.fillStyle = "rgba(0,0,20,0.75)"; X.fillRect(0, 0, CV.width, CV.height);
+      X.save(); X.shadowColor = "#ffcc00"; X.shadowBlur = 20;
+      X.fillStyle = "#ffcc00"; X.font = "bold 28px monospace"; X.textAlign = "center";
+      X.fillText("PAUSED", CV.width / 2, CV.height / 2 - 10);
+      X.shadowBlur = 0;
+      X.fillStyle = "#aaaacc"; X.font = "12px monospace";
+      X.fillText("Press P to resume", CV.width / 2, CV.height / 2 + 20);
+      X.fillStyle = "#888"; X.font = "10px monospace";
+      X.fillText(`Level ${level}/10  |  Score: ${score}  |  Dogs: ${chickensCollected}/10`, CV.width / 2, CV.height / 2 + 50);
+      X.textAlign = "left"; X.restore();
+    }
+
     // ============ RENDER ============
     function render() {
       tick++;
       X.clearRect(0, 0, CV.width, CV.height);
       X.fillStyle = "#0a0a1a"; X.fillRect(0, 0, CV.width, CV.height);
 
-      if (gameState === "playing") {
+      if (gameState === "intro") {
+        drawIntro();
+      } else if (gameState === "paused") {
+        drawPaused();
+      } else if (gameState === "playing") {
         for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) dt(x, y, map[y][x]);
         drawPickups();
         drawPortals();
         drawChicken();
         monsters.forEach(drawMonster);
+        drawPetDog();
         drawPlayer();
+        drawSmokePuffs();
         moveMonsters();
         monsterAttacks();
-        // HUD on canvas
-        X.fillStyle = "rgba(0,0,0,0.7)"; X.fillRect(0, 0, CV.width, 14);
+        // Level clock countdown (only game over if clock was actually running)
+        if (levelClock > 1) levelClock--;
+        else if (levelClock === 1) { levelClock = 0; gameState = "gameOver"; setMsg("Time's up!"); }
+        // Thirst decay (slow)
+        if (tick % 30 === 0) player.thirst = Math.max(0, player.thirst - 0.5);
+        if (player.thirst <= 0) {
+          // Starts losing lives when parched
+          if (tick % 120 === 0 && player.lives > 0) {
+            player.lives--; player.flash = 15; updH();
+            setMsg("Too thirsty! Find water!");
+            if (player.lives <= 0) gameState = "gameOver";
+          }
+        }
+        // HUD on canvas (2 rows)
+        X.fillStyle = "rgba(0,0,0,0.7)"; X.fillRect(0, 0, CV.width, 24);
         X.fillStyle = "#ffcc00"; X.font = "bold 9px monospace";
         X.fillText(`LV ${level}/10`, 4, 10);
         const alive = monsters.filter(m => m.alive).length;
@@ -961,16 +1865,35 @@ export default function Game() {
         X.fillStyle = "#88ff44"; X.fillText(`Arrows: ${player.arrows}`, 135, 10);
         X.fillStyle = "#88ccff"; X.fillText(`Armor: ${player.armor}`, 210, 10);
         X.fillStyle = "#cc88ff"; X.fillText(`Magic: ${player.magic || "-"}${player.magicUses > 0 ? ` x${player.magicUses}` : ""}`, 280, 10);
-        X.fillStyle = "#ffcc00"; X.textAlign = "right";
-        X.fillText("Find the Golden Chicken!", CV.width - 4, 10);
+        // Timer on second row
+        const secs = Math.ceil(levelClock / 60);
+        const mins = Math.floor(secs / 60);
+        const secStr = `${mins}:${String(secs % 60).padStart(2, "0")}`;
+        X.fillStyle = levelClock < 600 ? "#ff4444" : "#aaffaa"; X.fillText(`Time: ${secStr}`, 380, 10);
+        // Thirst row 2 (left of chickens)
+        const thirstCol = player.thirst > 50 ? "#00ccff" : player.thirst > 20 ? "#ffcc00" : "#ff4444";
+        X.fillStyle = thirstCol; X.font = "bold 8px monospace";
+        X.fillText(`\uD83D\uDCA7 ${Math.round(player.thirst)}%`, 200, 21);
+        // Chicken icons row 2
+        X.fillStyle = "#ffcc00"; X.font = "bold 8px monospace";
+        let chickenIcons = "";
+        for (let i = 0; i < 10; i++) chickenIcons += i < chickensCollected ? "\uD83D\uDC15" : "\u25CB";
+        X.fillText(chickenIcons, 4, 21);
+        X.fillStyle = "#888"; X.textAlign = "right";
+        X.fillText("Find the Golden Dog!", CV.width - 4, 21);
         X.textAlign = "left";
       } else if (gameState === "levelComplete") {
         for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) dt(x, y, map[y][x]);
+        drawSmokePuffs();
         drawLevelComplete();
         levelTimer--;
         if (levelTimer <= 0) startLevel(level + 1);
       } else if (gameState === "portalWorld") {
         drawPortalWorld();
+      } else if (gameState === "miniGame") {
+        drawMiniGame();
+      } else if (gameState === "portalTravel") {
+        drawPortalTravel();
       } else if (gameState === "gameOver") {
         drawGameOver();
       } else if (gameState === "victory") {
@@ -985,6 +1908,12 @@ export default function Game() {
       document.getElementById("hrt")!.textContent = h.join("");
       document.getElementById("sc")!.textContent = String(score);
       document.getElementById("lb")!.textContent = "LV " + level;
+      const cb = document.getElementById("chickenbar");
+      if (cb) {
+        let icons = "";
+        for (let i = 0; i < 10; i++) icons += i < chickensCollected ? "\uD83D\uDC15" : "\u25CB";
+        cb.textContent = icons;
+      }
     }
     function setMsg(t: string) { document.getElementById("msg")!.textContent = t; }
 
@@ -998,9 +1927,9 @@ export default function Game() {
       monsters.forEach(m => {
         if (!m.alive) return;
         if (Math.abs(m.x - player.x) <= 1 && Math.abs(m.y - player.y) <= 1) {
-          m.hp -= player.weapon!.dmg; m.flash = 10; hit = true;
+          m.hp -= player.weapon!.dmg; m.flash = 10; hit = true; playSquish();
           if (m.hp <= 0) {
-            m.alive = false; score += 200 * level; updH();
+            m.alive = false; spawnSmoke(m.x * S + S / 2, m.y * S + S / 2); score += 200 * level; updH();
             setMsg(`${m.name} destroyed! +${200 * level} pts!`);
           } else {
             setMsg(`Hit ${m.name}! HP: ${Math.max(0, m.hp)}/${m.maxhp}`);
@@ -1017,8 +1946,8 @@ export default function Game() {
       if (type === "fireball") {
         monsters.forEach(m => {
           if (m.alive && Math.abs(m.x - player.x) <= 2 && Math.abs(m.y - player.y) <= 2) {
-            m.hp -= 50; m.flash = 10;
-            if (m.hp <= 0) { m.alive = false; score += 200 * level; }
+            m.hp -= 50; m.flash = 10; playSquish();
+            if (m.hp <= 0) { m.alive = false; spawnSmoke(m.x * S + S / 2, m.y * S + S / 2); score += 200 * level; }
           }
         });
         setMsg("FIREBALL! Nearby monsters burned!");
@@ -1036,10 +1965,30 @@ export default function Game() {
         const alive = monsters.filter(m => m.alive);
         if (alive.length > 0) {
           const target = alive[Math.floor(Math.random() * alive.length)];
-          target.hp -= 80; target.flash = 15;
-          if (target.hp <= 0) { target.alive = false; score += 200 * level; }
+          target.hp -= 80; target.flash = 15; playSquish();
+          if (target.hp <= 0) { target.alive = false; spawnSmoke(target.x * S + S / 2, target.y * S + S / 2); score += 200 * level; }
           setMsg(`LIGHTNING strikes ${target.name}!`);
         }
+      } else if (type === "invisibility") {
+        // Spy gear: monsters can't attack for 120 ticks
+        monsters.forEach(m => { if (m.alive) m.lastMove = tick + 120; });
+        player.armor = Math.min(5, player.armor + 2);
+        setMsg("\uD83D\uDD76\uFE0F SPY INVISIBILITY! Monsters can't see you!");
+      } else if (type === "xray") {
+        // Spy gear: reveals and damages all monsters
+        monsters.forEach(m => {
+          if (m.alive) { m.hp -= 30; m.flash = 10; if (m.hp <= 0) { m.alive = false; spawnSmoke(m.x * S + S / 2, m.y * S + S / 2); score += 200 * level; } }
+        });
+        setMsg("\uD83D\uDCE1 SPY X-RAY! All monsters exposed and damaged!");
+      } else if (type === "superstrength") {
+        // Superpower: destroy all adjacent monsters instantly
+        let kills = 0;
+        monsters.forEach(m => {
+          if (m.alive && Math.abs(m.x - player.x) <= 2 && Math.abs(m.y - player.y) <= 2) {
+            m.alive = false; m.flash = 15; spawnSmoke(m.x * S + S / 2, m.y * S + S / 2); score += 200 * level; kills++;
+          }
+        });
+        setMsg(`\uD83D\uDCAA SUPER STRENGTH! Smashed ${kills} monsters!`);
       }
       if (player.magicUses <= 0) player.magic = null;
       updH();
@@ -1055,6 +2004,9 @@ export default function Game() {
       if (dy < 0) player.facing = "up";
       if (dy > 0) player.facing = "down";
       if (monsters.find(m => m.alive && m.x === nx && m.y === ny)) { setMsg("Monster blocking! Press F to fight!"); return; }
+      // Push current position to pet trail before moving (pet follows 2 steps behind)
+      petTrail.push({ x: player.x, y: player.y });
+      if (petTrail.length > 24) petTrail.shift();
       player.x = nx; player.y = ny;
       // Check pickups
       const pickup = pickups.find(p => !p.taken && p.x === nx && p.y === ny);
@@ -1070,7 +2022,7 @@ export default function Game() {
           player.weapon = next; score += 100;
           setMsg(`Found ${next.name}! ${next.dmg} damage!`);
         } else if (pickup.type === "magic") {
-          const types = ["fireball", "freeze", "shield", "heal", "lightning"];
+          const types = ["fireball", "freeze", "shield", "heal", "lightning", "invisibility", "xray", "superstrength"];
           player.magic = types[Math.floor(Math.random() * types.length)];
           player.magicUses = 1 + Math.floor(level / 3);
           score += 75;
@@ -1081,10 +2033,13 @@ export default function Game() {
         } else if (pickup.type === "arrows") {
           player.arrows += 3; score += 50;
           setMsg(`Found arrows! +3 arrows! (${player.arrows} total)`);
+        } else if (pickup.type === "water") {
+          player.thirst = Math.min(100, player.thirst + 40); score += 30;
+          setMsg(`Drank water! Thirst restored! (${Math.round(player.thirst)}%)`);
         }
         updH();
       }
-      // Check portal — enter a portal world challenge!
+      // Check portal — enter the portal world!
       const portal = portals.find(p => !p.taken && p.x === nx && p.y === ny);
       if (portal) {
         portal.taken = true;
@@ -1093,6 +2048,7 @@ export default function Game() {
       }
       // Check chicken!
       if (nx === chicken.x && ny === chicken.y) {
+        chickensCollected++;
         score += 1000 * level;
         updH();
         if (level >= 10) {
@@ -1106,20 +2062,40 @@ export default function Game() {
       // Tips
       const alive = monsters.filter(m => m.alive).length;
       if (!pickup && !portal) {
-        const tips = ["Find the Golden Chicken!", `${alive} monsters lurking...`, "F=Fight  M=Magic", "Pick up items along the way!"];
+        const tips = ["Find the Golden Dog!", `${alive} monsters lurking...`, "F=Fight  M=Magic", "Pick up items along the way!"];
         setMsg(tips[Math.floor(tick / 60) % tips.length]);
       }
     }
 
     // ============ INPUT ============
     document.addEventListener("keydown", e => {
+      // Intro: any key starts the game (also first chance to start music — user gesture required)
+      if (gameState === "intro") {
+        startMusic();
+        gameState = "playing";
+        startLevel(1);
+        return;
+      }
+      // Pause toggle
+      if (e.key === "p" || e.key === "P") {
+        if (gameState === "playing") { gameState = "paused"; return; }
+        if (gameState === "paused") { gameState = "playing"; return; }
+      }
+      if (gameState === "paused") return;
       if (gameState === "portalWorld") {
         if (activeChallenge?.failed) { activeChallenge = null; gameState = "playing"; }
         return;
       }
+      if (gameState === "miniGame") {
+        // Hat Shuffle is click-only; if already done, any key dismisses early
+        if (miniGame && miniGame.phase === "done") { miniGame = null; gameState = "playing"; return; }
+        return;
+      }
+      if (gameState === "portalTravel") return;
       if (gameState === "gameOver" || gameState === "victory") {
-        score = 0; player.lives = 5; player.weapon = WEAPONS[0]; player.magic = null; player.magicUses = 0; player.arrows = 3;
-        startLevel(1); return;
+        score = 0; chickensCollected = 0; player.lives = 5; player.weapon = WEAPONS[0]; player.magic = null; player.magicUses = 0; player.arrows = 3; player.thirst = 100;
+        gameState = "intro"; introScroll = 0;
+        return;
       }
       const moves: Record<string, [number, number]> = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
       if (moves[e.key]) { e.preventDefault(); movePlayer(...moves[e.key]); }
@@ -1132,9 +2108,25 @@ export default function Game() {
     document.getElementById("br")!.onclick = () => movePlayer(1, 0);
     document.getElementById("bf")!.onclick = fight;
     document.getElementById("bm")!.onclick = useMagic;
+    document.getElementById("bpause")!.onclick = () => {
+      if (gameState === "playing") gameState = "paused";
+      else if (gameState === "paused") gameState = "playing";
+    };
+    const muteBtn = document.getElementById("bmute")!;
+    muteBtn.onclick = () => {
+      muted = !muted;
+      muteBtn.textContent = muted ? "\uD83D\uDD07 Muted" : "\uD83D\uDD0A Sound";
+      if (muted) {
+        stopMusic();
+        if (musicGain) musicGain.gain.value = 0;
+      } else {
+        if (musicGain) musicGain.gain.value = 0.10;
+        if (!musicStarted) startMusic();
+      }
+    };
 
-    updH(); render();
-    setMsg("Level 1! Navigate the maze! Find the Golden Chicken!");
+    render();
+    setMsg("Press any key to begin your quest!");
   }, []);
 
   return (
@@ -1142,9 +2134,10 @@ export default function Game() {
       <div id="gw" ref={cwrapRef} style={{ position: "relative" }}>
         <div id="top">
           <h2>{"🏰 HUDSON'S EPIC QUEST"}</h2>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <div className="stat"><span id="hrt">{"❤️❤️❤️❤️❤️"}</span></div>
             <div className="stat">{"⭐ "}<span id="sc">0</span></div>
+            <div className="stat" style={{ color: "#ffcc00" }} id="chickenbar">{"🐕 0/10"}</div>
             <div className="lvl-badge" id="lb">LV 1</div>
           </div>
         </div>
@@ -1161,8 +2154,10 @@ export default function Game() {
           <div className="ctrl-group">
             <button className="btn btn-fight" id="bf">{"⚔ Fight (F)"}</button>
             <button className="btn" id="bm" style={{ color: "#cc88ff", borderColor: "#663388" }}>{"🪄 Magic (M)"}</button>
+            <button className="btn" id="bpause" style={{ color: "#aaaacc", borderColor: "#444466" }}>{"⏸ Pause"}</button>
+            <button className="btn" id="bmute" style={{ color: "#88ccff", borderColor: "#336688" }}>{"🔊 Sound"}</button>
           </div>
-          <div id="msg">Navigate the maze! Find the Golden Chicken!</div>
+          <div id="msg">Navigate the maze! Find the Golden Dog!</div>
         </div>
       </div>
     </div>
