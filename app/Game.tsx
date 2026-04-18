@@ -159,6 +159,136 @@ export default function Game() {
       src.start(now);
     }
 
+    // Walking footstep — soft muted click
+    function playWalk() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(90, now + 0.04);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.15, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+      osc.connect(env);
+      env.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.08);
+    }
+
+    // Attack swing — quick upward whoosh
+    function playAttack() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(350, now);
+      osc.frequency.exponentialRampToValueAtTime(900, now + 0.09);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.22, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      // Noise for whoosh texture
+      const bufferSize = Math.floor(ctx.sampleRate * 0.12);
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = "bandpass";
+      noiseFilter.frequency.value = 2500;
+      const noiseEnv = ctx.createGain();
+      noiseEnv.gain.value = 0.2;
+      noise.connect(noiseFilter); noiseFilter.connect(noiseEnv); noiseEnv.connect(ctx.destination);
+      osc.connect(env); env.connect(ctx.destination);
+      osc.start(now); osc.stop(now + 0.12);
+      noise.start(now);
+    }
+
+    // Getting hit — low dissonant thud
+    function playHurt() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const osc1 = ctx.createOscillator();
+      osc1.type = "sawtooth";
+      osc1.frequency.setValueAtTime(240, now);
+      osc1.frequency.exponentialRampToValueAtTime(80, now + 0.25);
+      const osc2 = ctx.createOscillator();
+      osc2.type = "square";
+      osc2.frequency.setValueAtTime(180, now);
+      osc2.frequency.exponentialRampToValueAtTime(60, now + 0.25);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.3, now);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      osc1.connect(env); osc2.connect(env); env.connect(ctx.destination);
+      osc1.start(now); osc2.start(now);
+      osc1.stop(now + 0.32); osc2.stop(now + 0.32);
+    }
+
+    // Correct answer — cheerful ascending arpeggio (C-E-G-C)
+    function playCorrect() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
+      notes.forEach((freq, i) => {
+        const now = ctx.currentTime + i * 0.1;
+        const osc = ctx.createOscillator();
+        osc.type = "triangle";
+        osc.frequency.value = freq;
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0, now);
+        env.gain.linearRampToValueAtTime(0.3, now + 0.02);
+        env.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+        osc.connect(env);
+        env.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.22);
+      });
+    }
+
+    // Wrong answer — two descending buzzy tones
+    function playWrong() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      [[400, 0], [260, 0.18]].forEach(([freq, delay]) => {
+        const now = ctx.currentTime + delay;
+        const osc = ctx.createOscillator();
+        osc.type = "square";
+        osc.frequency.value = freq;
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0.22, now);
+        env.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+        osc.connect(env);
+        env.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.2);
+      });
+    }
+
+    // Monster defeat — triumphant short fanfare (three ascending notes + pfft)
+    function playDefeat() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      const notes = [440, 554.37, 659.25]; // A4 C#5 E5 — A major
+      notes.forEach((freq, i) => {
+        const now = ctx.currentTime + i * 0.06;
+        const osc = ctx.createOscillator();
+        osc.type = "triangle";
+        osc.frequency.value = freq;
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0, now);
+        env.gain.linearRampToValueAtTime(0.28, now + 0.02);
+        env.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+        osc.connect(env);
+        env.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.26);
+      });
+    }
+
     // ============ GAME STATE ============
     type GameState = "intro" | "playing" | "paused" | "levelComplete" | "gameOver" | "victory" | "miniGame" | "portalTravel";
     let portalTravelTimer = 0;
@@ -197,7 +327,7 @@ export default function Game() {
       done?: boolean;
     }
     let miniGame: MiniGameState | null = null;
-    const HAT_Y = 220; // fixed y position for all hats
+    const HAT_Y = 270; // fixed y position for all helmets
     const HAT_XS = [140, 280, 420]; // initial x positions
     const LEVEL_TIMES = [5400, 6000, 6600, 7200, 7800, 9000, 10200, 11400, 12600, 14400]; // ticks per level (90s to 240s)
 
@@ -281,26 +411,9 @@ export default function Game() {
 
     // ============ PORTAL WORLD CHALLENGE ============
     const PORTAL_WORLDS = [
-      { col: "#00ffff", name: "Ice World", bg: "#0a2a4a", emoji: "\u2744\uFE0F" },
-      { col: "#ff4400", name: "Fire World", bg: "#4a1a0a", emoji: "\uD83D\uDD25" },
-      { col: "#880000", name: "Doom World", bg: "#2a0a0a", emoji: "\uD83D\uDC80" },
-      { col: "#4400aa", name: "Dark World", bg: "#0a0a2a", emoji: "\uD83C\uDF11" },
-      { col: "#0066ff", name: "Water World", bg: "#0a1a3a", emoji: "\uD83C\uDF0A" },
-      { col: "#ffffff", name: "Cloud World", bg: "#2a3a4a", emoji: "\u2601\uFE0F" },
-      { col: "#88ff88", name: "Ghost World", bg: "#1a2a1a", emoji: "\uD83D\uDC7B" },
-      { col: "#ffaa00", name: "Kitchen World", bg: "#3a2a1a", emoji: "\uD83C\uDF73" },
-      { col: "#ff88cc", name: "Cat World", bg: "#3a1a2a", emoji: "\uD83D\uDC31" },
-      { col: "#cc8844", name: "Dog World", bg: "#2a1a0a", emoji: "\uD83D\uDC36" },
-      { col: "#00aaff", name: "Fish World", bg: "#0a1a4a", emoji: "\uD83D\uDC1F" },
-      { col: "#ffcc00", name: "Pizza World", bg: "#3a2a0a", emoji: "\uD83C\uDF55" },
-      { col: "#aa00aa", name: "Spider World", bg: "#1a0a1a", emoji: "\uD83D\uDD77\uFE0F" },
-      { col: "#ff0044", name: "Superhero World", bg: "#1a0a2a", emoji: "\uD83E\uDDB8" },
-      { col: "#4488ff", name: "Hudson World", bg: "#0a1a3a", emoji: "\uD83D\uDC51" },
-      { col: "#ff8844", name: "Jason World", bg: "#3a1a0a", emoji: "\uD83D\uDC68" },
-      { col: "#ff66bb", name: "Heather World", bg: "#3a0a2a", emoji: "\uD83D\uDC78" },
-      { col: "#ffcc88", name: "Mom World", bg: "#2a1a2a", emoji: "\uD83D\uDC69" },
-      { col: "#8888ff", name: "Dad World", bg: "#1a1a3a", emoji: "\uD83D\uDC68\u200D\uD83D\uDCBC" },
-      { col: "#ffff88", name: "Kid World", bg: "#2a2a1a", emoji: "\uD83E\uDDD2" },
+      { col: "#ffaa33", name: "Jason's Realm", bg: "#2a1a0a", emoji: "\uD83D\uDC51" },
+      { col: "#4488ff", name: "Hudson's Realm", bg: "#0a1a3a", emoji: "\u2694\uFE0F" },
+      { col: "#ff66bb", name: "Heather's Realm", bg: "#3a0a2a", emoji: "\uD83D\uDC51" },
     ];
 
     // ============ TYPES ============
@@ -1108,6 +1221,7 @@ export default function Game() {
             setMsg(`${m.name} attacked! Armor blocked it!`);
           } else {
             player.lives--; player.flash = 15;
+            playHurt();
             setMsg(`${m.name} attacked Hudson! ${player.lives} lives left!`);
           }
           updH();
@@ -1151,7 +1265,7 @@ export default function Game() {
         swapFrom: 0,
         swapTo: 0,
         swapProgress: 0,
-        revealTimer: 120, // ~2 sec at 60fps
+        revealTimer: Math.max(60, 110 - level * 4), // shorter look at higher levels
         resultTimer: 0,
         won: false,
       };
@@ -1173,24 +1287,45 @@ export default function Game() {
     }
 
     function drawHat(x: number, y: number, raised: boolean = false) {
+      // Knight's helmet (replaces top hat)
       const ry = raised ? y - 24 : y;
-      // Brim (ellipse)
-      X.fillStyle = "#1a1a1a";
-      X.beginPath(); X.ellipse(x, ry + 20, 28, 6, 0, 0, Math.PI * 2); X.fill();
-      // Hat top (trapezoid)
-      X.fillStyle = "#2a2a2a";
+      // Base/neck ring
+      X.fillStyle = "#5a5a68";
+      X.fillRect(x - 20, ry + 22, 40, 6);
+      // Helmet main bell shape
+      X.fillStyle = "#b0b0b8";
       X.beginPath();
-      X.moveTo(x - 18, ry + 20);
-      X.lineTo(x - 14, ry - 12);
-      X.lineTo(x + 14, ry - 12);
-      X.lineTo(x + 18, ry + 20);
-      X.closePath(); X.fill();
-      // Hat band
-      X.fillStyle = "#8a0000";
-      X.fillRect(x - 17, ry + 14, 34, 4);
-      // Highlight stripe
-      X.fillStyle = "#3a3a3a";
-      X.fillRect(x - 12, ry - 10, 2, 28);
+      X.moveTo(x - 22, ry + 22);
+      X.quadraticCurveTo(x - 22, ry - 18, x, ry - 20);
+      X.quadraticCurveTo(x + 22, ry - 18, x + 22, ry + 22);
+      X.closePath();
+      X.fill();
+      // Highlight on left side
+      X.fillStyle = "#d0d0d8";
+      X.beginPath();
+      X.moveTo(x - 18, ry + 18);
+      X.quadraticCurveTo(x - 18, ry - 14, x - 6, ry - 18);
+      X.lineTo(x - 4, ry - 12);
+      X.quadraticCurveTo(x - 14, ry - 10, x - 14, ry + 18);
+      X.closePath();
+      X.fill();
+      // Visor slit (dark)
+      X.fillStyle = "#111";
+      X.fillRect(x - 16, ry - 2, 32, 4);
+      // Visor rivets
+      X.fillStyle = "#808088";
+      X.beginPath(); X.arc(x - 14, ry + 8, 1.5, 0, Math.PI * 2); X.fill();
+      X.beginPath(); X.arc(x + 14, ry + 8, 1.5, 0, Math.PI * 2); X.fill();
+      X.beginPath(); X.arc(x - 14, ry - 10, 1.5, 0, Math.PI * 2); X.fill();
+      X.beginPath(); X.arc(x + 14, ry - 10, 1.5, 0, Math.PI * 2); X.fill();
+      // Red plume on top
+      X.fillStyle = "#c62828";
+      X.fillRect(x - 2, ry - 28, 4, 10);
+      X.fillStyle = "#e53935";
+      X.fillRect(x - 1, ry - 28, 2, 8);
+      // Shadow under helmet
+      X.fillStyle = "rgba(0,0,0,0.4)";
+      X.beginPath(); X.ellipse(x, ry + 30, 22, 4, 0, 0, Math.PI * 2); X.fill();
     }
 
     function drawBall(x: number, y: number) {
@@ -1243,22 +1378,100 @@ export default function Game() {
     function drawMiniGame() {
       if (!miniGame) return;
       const mg = miniGame;
-      // Background
+      // === Castle hall background ===
       X.fillStyle = mg.world.bg; X.fillRect(0, 0, CV.width, CV.height);
-      // World-themed floating particles
-      for (let i = 0; i < 20; i++) {
-        const px = (i * 53 + tick * 0.4) % CV.width;
-        const py = (i * 37 + Math.sin(tick / 15 + i) * 20) % CV.height;
-        X.fillStyle = mg.world.col + "33";
-        X.beginPath(); X.arc(px, py, 2, 0, Math.PI * 2); X.fill();
+      // Stone brick wall pattern
+      const brickH = 22, brickW = 60;
+      for (let y = 0; y < CV.height; y += brickH) {
+        const offset = (Math.floor(y / brickH) % 2) * (brickW / 2);
+        for (let x = -offset; x < CV.width; x += brickW) {
+          X.fillStyle = "#3a3540";
+          X.fillRect(x + 1, y + 1, brickW - 2, brickH - 2);
+          X.fillStyle = "#2a2530";
+          X.fillRect(x + 1, y + brickH - 3, brickW - 2, 2);
+          X.fillStyle = "#4a4550";
+          X.fillRect(x + 2, y + 2, brickW - 4, 2);
+        }
       }
-      // Title with emoji
-      X.save(); X.shadowColor = mg.world.col; X.shadowBlur = 10;
-      X.fillStyle = mg.world.col; X.font = "bold 14px monospace"; X.textAlign = "center";
-      X.fillText(`${mg.world.emoji} ${mg.world.name}`, CV.width / 2, 30);
+      // Dark color overlay for realm mood
+      X.fillStyle = mg.world.col + "14";
+      X.fillRect(0, 0, CV.width, CV.height);
+      // Left castle pillar
+      X.fillStyle = "#4a4550";
+      X.fillRect(0, 0, 30, CV.height);
+      X.fillStyle = "#5a5560";
+      X.fillRect(6, 0, 18, CV.height);
+      // Right castle pillar
+      X.fillStyle = "#4a4550";
+      X.fillRect(CV.width - 30, 0, 30, CV.height);
+      X.fillStyle = "#5a5560";
+      X.fillRect(CV.width - 24, 0, 18, CV.height);
+      // Castle crenellations at top
+      X.fillStyle = "#2a2530";
+      X.fillRect(0, 0, CV.width, 10);
+      for (let cx = 0; cx < CV.width; cx += 30) {
+        X.fillStyle = "#4a4550";
+        X.fillRect(cx, 0, 14, 10);
+      }
+      // Torches with flickering flames on both pillars
+      const flicker = 0.8 + Math.sin(tick / 3) * 0.2;
+      const drawTorch = (tx: number, ty: number) => {
+        // Torch handle
+        X.fillStyle = "#5a3a10";
+        X.fillRect(tx - 2, ty, 4, 14);
+        // Torch bowl
+        X.fillStyle = "#888";
+        X.fillRect(tx - 6, ty - 4, 12, 5);
+        // Flame
+        X.save();
+        X.shadowColor = "#ff7700"; X.shadowBlur = 12 * flicker;
+        X.fillStyle = `rgba(255,140,0,${flicker})`;
+        X.beginPath();
+        X.moveTo(tx - 6, ty - 4);
+        X.quadraticCurveTo(tx - 8, ty - 16 - flicker * 2, tx, ty - 22 - flicker * 3);
+        X.quadraticCurveTo(tx + 8, ty - 16 - flicker * 2, tx + 6, ty - 4);
+        X.closePath(); X.fill();
+        X.fillStyle = `rgba(255,220,100,${flicker})`;
+        X.beginPath();
+        X.moveTo(tx - 3, ty - 6);
+        X.quadraticCurveTo(tx - 4, ty - 13, tx, ty - 17);
+        X.quadraticCurveTo(tx + 4, ty - 13, tx + 3, ty - 6);
+        X.closePath(); X.fill();
+        X.restore();
+      };
+      drawTorch(50, 120);
+      drawTorch(CV.width - 50, 120);
+      drawTorch(50, 280);
+      drawTorch(CV.width - 50, 280);
+      // Royal banner hanging in the middle
+      X.fillStyle = mg.world.col + "aa";
+      X.fillRect(CV.width / 2 - 40, 70, 80, 4);
+      X.fillStyle = mg.world.col;
+      X.fillRect(CV.width / 2 - 30, 70, 60, 70);
+      X.fillStyle = mg.world.col + "dd";
+      X.beginPath();
+      X.moveTo(CV.width / 2 - 30, 140);
+      X.lineTo(CV.width / 2, 154);
+      X.lineTo(CV.width / 2 + 30, 140);
+      X.closePath(); X.fill();
+      // Banner emblem (gold crown)
+      X.fillStyle = "#ffd700";
+      X.font = "bold 24px serif"; X.textAlign = "center";
+      X.fillText(mg.world.emoji, CV.width / 2, 115);
+      // Floating dust motes
+      for (let i = 0; i < 15; i++) {
+        const px = (i * 53 + tick * 0.3) % CV.width;
+        const py = (i * 37 + Math.sin(tick / 15 + i) * 20) % CV.height;
+        X.fillStyle = "rgba(255,220,140,0.25)";
+        X.beginPath(); X.arc(px, py, 1, 0, Math.PI * 2); X.fill();
+      }
+      // === Title plate ===
+      X.save(); X.shadowColor = mg.world.col; X.shadowBlur = 12;
+      X.fillStyle = mg.world.col; X.font = "bold 16px serif"; X.textAlign = "center";
+      X.fillText(mg.world.name, CV.width / 2, 180);
       X.restore();
-      X.fillStyle = "#ffcc00"; X.font = "bold 11px monospace"; X.textAlign = "center";
-      X.fillText("HAT SHUFFLE \u2014 Find the ball to win +1 Life!", CV.width / 2, 54);
+      X.fillStyle = "#ffd700"; X.font = "bold 11px monospace"; X.textAlign = "center";
+      X.fillText("HELMET SHUFFLE \u2014 Find the ball to win +1 Life!", CV.width / 2, 200);
       X.textAlign = "left";
 
       // Phase logic
@@ -1270,19 +1483,18 @@ export default function Game() {
         if (ballHat) drawBall(ballHat.x, HAT_Y + 8);
         // Status text
         X.fillStyle = "#ffffff"; X.font = "bold 12px monospace"; X.textAlign = "center";
-        X.fillText("Watch carefully! The ball is under that hat...", CV.width / 2, 100);
+        X.fillText("Watch the helmet! The ball is there...", CV.width / 2, 230);
         X.textAlign = "left";
         mg.revealTimer--;
         if (mg.revealTimer <= 0) {
-          mg.shuffleTotal = 4 + Math.floor(Math.random() * 3); // 4-6 swaps
+          // Harder: more shuffles, scales with level
+          mg.shuffleTotal = 8 + Math.floor(Math.random() * 4) + Math.floor(level / 2); // 8-11 base, +1 per 2 levels
           mg.shuffleStep = 0;
           pickShufflePair(mg);
           mg.phase = "shuffling";
         }
       } else if (mg.phase === "shuffling") {
         // Interpolate positions of swapping hats
-        const fromHat = mg.hats[mg.swapFrom];
-        const toHat = mg.hats[mg.swapTo];
         const fromStartX = HAT_XS[mg.swapFrom];
         const toStartX = HAT_XS[mg.swapTo];
         // Compute interpolated positions during animation
@@ -1305,9 +1517,10 @@ export default function Game() {
         });
         // Status
         X.fillStyle = "#ffffff"; X.font = "bold 12px monospace"; X.textAlign = "center";
-        X.fillText(`Shuffling... ${mg.shuffleStep + 1} / ${mg.shuffleTotal}`, CV.width / 2, 100);
+        X.fillText(`Shuffling... ${mg.shuffleStep + 1} / ${mg.shuffleTotal}`, CV.width / 2, 230);
         X.textAlign = "left";
-        mg.swapProgress += 0.035;
+        // Faster shuffles at higher levels (harder to track)
+        mg.swapProgress += 0.055 + level * 0.005;
         if (mg.swapProgress >= 1) {
           // Commit the swap — exchange positions AND hasBall stays with hats (objects swap in array)
           const tmp = mg.hats[mg.swapFrom];
@@ -1326,7 +1539,7 @@ export default function Game() {
         mg.hats.forEach(h => drawHat(h.x, HAT_Y));
         X.save(); X.shadowColor = "#ffcc00"; X.shadowBlur = 8;
         X.fillStyle = "#ffcc00"; X.font = "bold 14px monospace"; X.textAlign = "center";
-        X.fillText("Click the hat with the ball!", CV.width / 2, 100);
+        X.fillText("Which helmet holds the ball?", CV.width / 2, 230);
         X.restore();
         X.textAlign = "left";
       } else if (mg.phase === "done") {
@@ -1342,7 +1555,7 @@ export default function Game() {
         X.shadowColor = mg.won ? "#00ff88" : "#ff4444"; X.shadowBlur = 12;
         X.fillStyle = mg.won ? "#00ff88" : "#ff4444";
         X.font = "bold 20px monospace"; X.textAlign = "center";
-        X.fillText(mg.won ? "\uD83C\uDF89 You Win! +1 Life!" : "\uD83D\uDE14 Wrong hat!", CV.width / 2, CV.height / 2);
+        X.fillText(mg.won ? "\uD83C\uDF89 You Win! +1 Life!" : "\uD83D\uDE14 Wrong helmet!", CV.width / 2, CV.height / 2);
         X.restore();
         X.fillStyle = "#fff"; X.font = "12px monospace"; X.textAlign = "center";
         X.fillText(mg.won ? "A life has been added to your hearts!" : "Better luck next time...", CV.width / 2, CV.height / 2 + 25);
@@ -1371,6 +1584,9 @@ export default function Game() {
           if (miniGame.won) {
             player.lives = Math.min(5, player.lives + 1);
             updH();
+            playCorrect();
+          } else {
+            playWrong();
           }
           break;
         }
@@ -1642,6 +1858,7 @@ export default function Game() {
       if (player.arrows <= 0) { setMsg("No arrows! Find arrow pickups in the maze!"); return; }
       player.arrows--;
       updH();
+      playAttack();
       let hit = false;
       monsters.forEach(m => {
         if (!m.alive) return;
@@ -1649,6 +1866,7 @@ export default function Game() {
           m.hp -= player.weapon!.dmg; m.flash = 10; hit = true; playSquish();
           if (m.hp <= 0) {
             m.alive = false; spawnSmoke(m.x * S + S / 2, m.y * S + S / 2); score += 200 * level; updH();
+            playDefeat();
             setMsg(`${m.name} destroyed! +${200 * level} pts!`);
           } else {
             setMsg(`Hit ${m.name}! HP: ${Math.max(0, m.hp)}/${m.maxhp}`);
@@ -1727,6 +1945,7 @@ export default function Game() {
       petTrail.push({ x: player.x, y: player.y });
       if (petTrail.length > 24) petTrail.shift();
       player.x = nx; player.y = ny;
+      playWalk();
       // Check pickups
       const pickup = pickups.find(p => !p.taken && p.x === nx && p.y === ny);
       if (pickup) {
@@ -1817,18 +2036,39 @@ export default function Game() {
       if (e.key === "f" || e.key === "F") { e.preventDefault(); fight(); }
       if (e.key === "m" || e.key === "M") { e.preventDefault(); useMagic(); }
     });
-    document.getElementById("bu")!.onclick = () => movePlayer(0, -1);
-    document.getElementById("bd")!.onclick = () => movePlayer(0, 1);
-    document.getElementById("bl")!.onclick = () => movePlayer(-1, 0);
-    document.getElementById("br")!.onclick = () => movePlayer(1, 0);
-    document.getElementById("bf")!.onclick = fight;
-    document.getElementById("bm")!.onclick = useMagic;
-    document.getElementById("bpause")!.onclick = () => {
+    // Bind both click and touchstart for instant mobile response
+    function bindPress(id: string, handler: () => void) {
+      const el = document.getElementById(id)!;
+      el.onclick = (e) => { e.preventDefault(); handler(); };
+      el.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        // Unlock audio on first touch (iOS gesture requirement)
+        startMusic();
+        handler();
+      }, { passive: false });
+    }
+    // Intro: any button press also advances past the intro
+    function maybeLeaveIntro() {
+      if (gameState === "intro") {
+        startMusic();
+        gameState = "playing";
+        startLevel(1);
+      }
+    }
+    // We want the intro to end on ANY button press too — wrap handlers
+    const wrap = (fn: () => void) => () => { maybeLeaveIntro(); fn(); };
+    bindPress("bu", wrap(() => movePlayer(0, -1)));
+    bindPress("bd", wrap(() => movePlayer(0, 1)));
+    bindPress("bl", wrap(() => movePlayer(-1, 0)));
+    bindPress("br", wrap(() => movePlayer(1, 0)));
+    bindPress("bf", wrap(fight));
+    bindPress("bm", wrap(useMagic));
+    bindPress("bpause", () => {
       if (gameState === "playing") gameState = "paused";
       else if (gameState === "paused") gameState = "playing";
-    };
+    });
     const muteBtn = document.getElementById("bmute")!;
-    muteBtn.onclick = () => {
+    bindPress("bmute", () => {
       muted = !muted;
       muteBtn.textContent = muted ? "\uD83D\uDD07 Muted" : "\uD83D\uDD0A Sound";
       if (muted) {
@@ -1838,7 +2078,16 @@ export default function Game() {
         if (musicGain) musicGain.gain.value = 0.10;
         if (!musicStarted) startMusic();
       }
-    };
+    });
+    // Canvas tap: dismiss intro / handle mini-game (existing click listener already wired)
+    CV.addEventListener("touchstart", (e) => {
+      if (gameState === "intro") {
+        e.preventDefault();
+        startMusic();
+        gameState = "playing";
+        startLevel(1);
+      }
+    }, { passive: false });
 
     render();
     setMsg("Press any key to begin your quest!");
@@ -1860,19 +2109,23 @@ export default function Game() {
           <canvas id="gc" width={560} height={400}></canvas>
         </div>
         <div id="hud">
-          <div className="ctrl-group">
-            <button className="btn" id="bu">{"↑"}</button>
-            <button className="btn" id="bl">{"←"}</button>
-            <button className="btn" id="bd">{"↓"}</button>
-            <button className="btn" id="br">{"→"}</button>
+          <div id="msg">Tap a button or press any key to begin!</div>
+          <div id="controls">
+            <div id="dpad">
+              <button className="dbtn dbtn-up" id="bu" aria-label="Up">{"↑"}</button>
+              <button className="dbtn dbtn-left" id="bl" aria-label="Left">{"←"}</button>
+              <button className="dbtn dbtn-down" id="bd" aria-label="Down">{"↓"}</button>
+              <button className="dbtn dbtn-right" id="br" aria-label="Right">{"→"}</button>
+            </div>
+            <div id="actions">
+              <button className="abtn abtn-fight" id="bf">{"⚔ FIGHT"}</button>
+              <button className="abtn abtn-magic" id="bm">{"🪄 MAGIC"}</button>
+            </div>
           </div>
-          <div className="ctrl-group">
-            <button className="btn btn-fight" id="bf">{"⚔ Fight (F)"}</button>
-            <button className="btn" id="bm" style={{ color: "#cc88ff", borderColor: "#663388" }}>{"🪄 Magic (M)"}</button>
-            <button className="btn" id="bpause" style={{ color: "#aaaacc", borderColor: "#444466" }}>{"⏸ Pause"}</button>
-            <button className="btn" id="bmute" style={{ color: "#88ccff", borderColor: "#336688" }}>{"🔊 Sound"}</button>
+          <div id="sys-row">
+            <button className="sysbtn" id="bpause">{"⏸ Pause"}</button>
+            <button className="sysbtn" id="bmute">{"🔊 Sound"}</button>
           </div>
-          <div id="msg">Navigate the maze! Find the Golden Dog!</div>
         </div>
       </div>
     </div>
