@@ -411,9 +411,9 @@ export default function Game() {
 
     // ============ PORTAL WORLD CHALLENGE ============
     const PORTAL_WORLDS = [
-      { col: "#ffaa33", name: "Jason's Realm", bg: "#2a1a0a", emoji: "\uD83D\uDC51" },
-      { col: "#4488ff", name: "Hudson's Realm", bg: "#0a1a3a", emoji: "\u2694\uFE0F" },
-      { col: "#ff66bb", name: "Heather's Realm", bg: "#3a0a2a", emoji: "\uD83D\uDC51" },
+      { col: "#ffaa33", name: "Jason's Realm", bg: "#2a1a0a", emoji: "\uD83C\uDFF0" },  // castle
+      { col: "#4488ff", name: "Hudson's Realm", bg: "#0a1a3a", emoji: "\u2694\uFE0F" },  // crossed swords
+      { col: "#ff66bb", name: "Heather's Realm", bg: "#3a0a2a", emoji: "\uD83D\uDC78" }, // princess
     ];
 
     // ============ TYPES ============
@@ -1278,12 +1278,20 @@ export default function Game() {
       mg.swapProgress = 0;
     }
 
+    let lastRealmIdx = -1;
     function enterPortalWorld(_portal: Portal) {
-      // Pick a random world, then show travel transition before the hat shuffle
-      const world = PORTAL_WORLDS[Math.floor(Math.random() * PORTAL_WORLDS.length)];
+      // Pick a random realm that's different from the last one we visited.
+      // Mix Date.now + Math.random so it's never stuck on the same value.
+      let idx: number;
+      do {
+        idx = (Math.floor(Math.random() * 1000) + Date.now()) % PORTAL_WORLDS.length;
+      } while (idx === lastRealmIdx && PORTAL_WORLDS.length > 1);
+      lastRealmIdx = idx;
+      const world = PORTAL_WORLDS[idx];
       portalTravelWorld = world;
       portalTravelTimer = 180; // ~3 sec travel transition
       gameState = "portalTravel";
+      setMsg(`\uD83C\uDF00 Entering ${world.name}!`);
     }
 
     function drawHat(x: number, y: number, raised: boolean = false) {
@@ -1393,8 +1401,8 @@ export default function Game() {
           X.fillRect(x + 2, y + 2, brickW - 4, 2);
         }
       }
-      // Dark color overlay for realm mood
-      X.fillStyle = mg.world.col + "14";
+      // Dark color overlay for realm mood (stronger tint so the realm is unmistakable)
+      X.fillStyle = mg.world.col + "33";
       X.fillRect(0, 0, CV.width, CV.height);
       // Left castle pillar
       X.fillStyle = "#4a4550";
