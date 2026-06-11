@@ -3,12 +3,12 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0a0010;margin:0;padding:0;min-height:100vh;min-height:100dvh;display:flex;align-items:start;justify-content:center;font-family:monospace}
 @media(min-width:640px) and (min-height:820px){body{align-items:center}}
-#game-wrap{width:100%;max-width:640px;margin:0 auto;padding:8px}
+#game-wrap{width:100%;max-width:720px;margin:0 auto;padding:8px}
 #gw{background:#1a0a2a;border-radius:10px;overflow:hidden;font-family:monospace;user-select:none;width:100%;border:1px solid #2a1a4a}
 #top{background:#0d0618;padding:5px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #2a1a4a;flex-wrap:wrap;gap:4px}
 #top h2{color:#ffcc00;font-size:13px;font-weight:600;letter-spacing:1.5px}
 #mid{display:flex;flex-direction:column;align-items:center}
-canvas{display:block;max-width:100%;height:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+canvas{display:block;width:100%;height:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .lvl-badge{background:#1a0a2a;color:#ffcc00;border:1px solid #ffcc00;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:600;letter-spacing:1px}
 .stat{display:flex;align-items:center;gap:3px;color:#eee;font-size:11px}
 
@@ -66,7 +66,7 @@ canvas{display:block;max-width:100%;height:auto;touch-action:manipulation;-webki
 /* ========== DESKTOP: compact controls inline (keyboard-primary) ========== */
 /* Desktop = wide viewport (phones and small tablets stay big-button). */
 @media(min-width:760px){
-  #game-wrap{max-width:600px;padding:12px}
+  #game-wrap{max-width:960px;padding:12px}
   #hud{padding:6px 10px;gap:6px;flex-direction:row;flex-wrap:wrap;align-items:center}
   #msg{font-size:11px;padding:3px 8px;min-height:14px;flex:1 1 100%;order:-1}
   #controls{padding:0;gap:6px;justify-content:flex-start;align-items:center;flex-wrap:wrap;flex:1 1 auto}

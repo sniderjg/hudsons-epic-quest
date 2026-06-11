@@ -291,6 +291,7 @@ export default function Game() {
 
     // ============ GAME STATE ============
     type GameState = "intro" | "playing" | "paused" | "levelComplete" | "gameOver" | "victory" | "miniGame" | "portalTravel";
+    let endScreenAt = 0; // Date.now() when game-over/victory screen appeared (grace period before restart input)
     let portalTravelTimer = 0;
     let portalTravelWorld: { col: string; name: string; bg: string; emoji: string } | null = null;
     let gameState: GameState = "intro";
@@ -333,23 +334,6 @@ export default function Game() {
 
     // ============ EPIC INTRO STORY ============
     const INTRO_LINES = [
-      "",
-      "HOW TO PLAY",
-      "",
-      "Arrow Keys \u2014 Move Hudson",
-      "F \u2014 Fight nearby monsters",
-      "M \u2014 Use magic power",
-      "P \u2014 Pause the game",
-      "",
-      "Walk over items to pick them up",
-      "Portals appear on levels 3, 6, 9",
-      "",
-      "Find the GOLDEN DOG in each maze",
-      "Save all 10 to beat the game!",
-      "",
-      "",
-      "\u2014 THE STORY \u2014",
-      "",
       "",
       "In a time of legends...",
       "in a kingdom beyond the mountains...",
@@ -1143,20 +1127,45 @@ export default function Game() {
       X.textAlign = "left"; X.restore();
     }
 
+    function drawPlayAgainButton(by: number) {
+      const bw = 220, bh = 48;
+      const bx = CV.width / 2 - bw / 2;
+      const pulse = 0.7 + Math.sin(tick / 10) * 0.3;
+      X.save();
+      X.shadowColor = "#00ff88"; X.shadowBlur = 14 * pulse;
+      const grad = X.createLinearGradient(0, by, 0, by + bh);
+      grad.addColorStop(0, "#2a8a3a"); grad.addColorStop(1, "#145a20");
+      X.fillStyle = grad;
+      X.beginPath();
+      X.roundRect(bx, by, bw, bh, 12);
+      X.fill();
+      X.strokeStyle = "#66ff99"; X.lineWidth = 2;
+      X.beginPath(); X.roundRect(bx, by, bw, bh, 12); X.stroke();
+      X.restore();
+      X.fillStyle = "#ffffff"; X.font = "bold 18px monospace"; X.textAlign = "center";
+      X.fillText("▶ PLAY AGAIN", CV.width / 2, by + 31);
+      X.fillStyle = "#88ffaa"; X.font = "10px monospace";
+      X.fillText("tap here or press any key", CV.width / 2, by + bh + 16);
+      X.textAlign = "left";
+    }
+
     function drawGameOver() {
+      if (endScreenAt === 0) endScreenAt = Date.now();
       X.fillStyle = "rgba(20,0,0,0.92)"; X.fillRect(0, 0, CV.width, CV.height);
       X.save(); X.shadowColor = "#ff0000"; X.shadowBlur = 20;
       X.fillStyle = "#ff4444"; X.font = "bold 28px monospace"; X.textAlign = "center";
-      X.fillText("GAME OVER", CV.width / 2, 120);
+      X.fillText("GAME OVER", CV.width / 2, 110);
       X.shadowBlur = 0;
       X.fillStyle = "#fff"; X.font = "14px monospace";
-      X.fillText(`Score: ${score}  |  Level: ${level}`, CV.width / 2, 170);
-      X.fillStyle = "#ffcc00"; X.font = "bold 12px monospace";
-      X.fillText("Press any key to restart!", CV.width / 2, 230);
+      X.fillText(`Score: ${score}  |  Level: ${level}`, CV.width / 2, 160);
+      X.fillStyle = "#aaa"; X.font = "12px monospace";
+      X.fillText("Sir Hudson has fallen... but heroes rise again!", CV.width / 2, 195);
       X.textAlign = "left"; X.restore();
+      drawPlayAgainButton(240);
     }
 
     function drawVictory() {
+      if (endScreenAt === 0) endScreenAt = Date.now();
       X.fillStyle = "rgba(0,5,0,0.94)"; X.fillRect(0, 0, CV.width, CV.height);
       X.save();
       const glow = 20 + Math.sin(tick / 8) * 15;
@@ -1181,9 +1190,8 @@ export default function Game() {
       X.fillStyle = "#88ff88"; X.font = "12px monospace";
       X.fillText("The Golden Dogs are safe!", CV.width / 2, 220);
       X.fillText("Hudson saved everything!", CV.width / 2, 245);
-      X.fillStyle = "#ffcc00"; X.font = "bold 11px monospace";
-      X.fillText("Press any key to play again!", CV.width / 2, 290);
       X.textAlign = "left"; X.restore();
+      drawPlayAgainButton(290);
     }
 
     // ============ MONSTER AI ============
@@ -1712,19 +1720,23 @@ export default function Game() {
       X.fillText("SIR HUDSON", hx, hy + 72 + pulse);
       X.restore();
 
-      // Scrolling text
-      introScroll += 0.4;
-      const startY = CV.height - introScroll + 100;
+      // Scrolling story (faster), confined to a band between Hudson and the rules panel
+      const bandTop = 138, bandBot = 252;
+      introScroll += 0.55;
+      const startY = bandBot - introScroll + 20;
+      // Loop the story once it has fully scrolled past
+      const totalH = INTRO_LINES.length * 22 + (bandBot - bandTop);
+      if (introScroll > totalH) introScroll = 0;
       X.textAlign = "center";
       INTRO_LINES.forEach((line, i) => {
         const ly = startY + i * 22;
-        if (ly < -20 || ly > CV.height + 20) return;
-        // Fade at edges
-        const fade = Math.min(1, Math.min((ly - 70) / 40, (CV.height - ly) / 40));
+        if (ly < bandTop - 20 || ly > bandBot + 20) return;
+        // Fade at band edges
+        const fade = Math.min(1, Math.min((ly - bandTop) / 25, (bandBot - ly) / 25));
         if (fade <= 0) return;
-        if (["SIR HUDSON", "EPIC QUEST", "MAGICAL GOLDEN DOGS", "HOW TO PLAY", "\u2014 THE STORY \u2014"].includes(line)) {
+        if (["SIR HUDSON", "EPIC QUEST", "MAGICAL GOLDEN DOGS"].includes(line)) {
           X.save(); X.shadowColor = "#ffcc00"; X.shadowBlur = 12;
-          X.fillStyle = `rgba(255,204,0,${fade})`; X.font = "bold 18px monospace";
+          X.fillStyle = `rgba(255,204,0,${fade})`; X.font = "bold 16px monospace";
           X.fillText(line, CV.width / 2, ly);
           X.restore();
         } else if (line.startsWith("\"") || line.startsWith("[ ")) {
@@ -1738,14 +1750,53 @@ export default function Game() {
           X.fillText(line, CV.width / 2, ly);
         }
       });
+
+      // ===== Static HOW TO PLAY panel (always visible) =====
+      const panelY = 262;
+      X.fillStyle = "rgba(15,10,35,0.92)";
+      X.fillRect(20, panelY, CV.width - 40, 128);
+      X.save(); X.shadowColor = "#ffcc00"; X.shadowBlur = 8;
+      X.strokeStyle = "#ffcc00"; X.lineWidth = 2;
+      X.strokeRect(20, panelY, CV.width - 40, 128);
+      X.restore();
+      X.save(); X.shadowColor = "#ffcc00"; X.shadowBlur = 10;
+      X.fillStyle = "#ffcc00"; X.font = "bold 14px monospace"; X.textAlign = "center";
+      X.fillText("HOW TO PLAY", CV.width / 2, panelY + 20);
+      X.restore();
+      // Two columns of rules
+      X.font = "11px monospace"; X.textAlign = "left";
+      const colL = 40, colR = CV.width / 2 + 14;
+      const rowsL = [
+        ["\u2190\u2191\u2193\u2192", "Move Hudson"],
+        ["F", "Fight monsters"],
+        ["M", "Use magic"],
+        ["P", "Pause game"],
+      ];
+      const rowsR = [
+        ["\ud83c\udf54", "Walk over items to grab them"],
+        ["\ud83c\udf00", "Portals on levels 3, 6, 9"],
+        ["\ud83d\udc15", "Find the GOLDEN DOG!"],
+        ["\u2b50", "Save all 10 to win!"],
+      ];
+      rowsL.forEach(([k, desc], i) => {
+        const ry = panelY + 42 + i * 20;
+        X.fillStyle = "#ffcc00"; X.font = "bold 11px monospace";
+        X.fillText(k, colL, ry);
+        X.fillStyle = "#ddddee"; X.font = "11px monospace";
+        X.fillText(desc, colL + 56, ry);
+      });
+      rowsR.forEach(([k, desc], i) => {
+        const ry = panelY + 42 + i * 20;
+        X.fillStyle = "#ffcc00"; X.font = "11px monospace";
+        X.fillText(k, colR, ry);
+        X.fillStyle = "#ddddee"; X.font = "11px monospace";
+        X.fillText(desc, colR + 24, ry);
+      });
+      // Blinking start prompt
+      const blink = 0.55 + Math.sin(tick / 12) * 0.45;
+      X.fillStyle = `rgba(136,255,136,${blink})`; X.font = "bold 12px monospace"; X.textAlign = "center";
+      X.fillText("Press any key or tap to begin!", CV.width / 2, panelY + 122);
       X.textAlign = "left";
-      // Top/bottom fade gradients
-      const gTop = X.createLinearGradient(0, 65, 0, 100);
-      gTop.addColorStop(0, "#050510"); gTop.addColorStop(1, "rgba(5,5,16,0)");
-      X.fillStyle = gTop; X.fillRect(0, 65, CV.width, 35);
-      const gBot = X.createLinearGradient(0, CV.height - 30, 0, CV.height);
-      gBot.addColorStop(0, "rgba(5,5,16,0)"); gBot.addColorStop(1, "#050510");
-      X.fillStyle = gBot; X.fillRect(0, CV.height - 30, CV.width, 30);
     }
 
     // ============ DRAW PAUSED ============
@@ -2035,8 +2086,7 @@ export default function Game() {
       }
       if (gameState === "portalTravel") return;
       if (gameState === "gameOver" || gameState === "victory") {
-        score = 0; chickensCollected = 0; player.lives = 5; player.weapon = WEAPONS[0]; player.magic = null; player.magicUses = 0; player.arrows = 3; player.thirst = 100;
-        gameState = "intro"; introScroll = 0;
+        restartGame();
         return;
       }
       const moves: Record<string, [number, number]> = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
@@ -2044,6 +2094,17 @@ export default function Game() {
       if (e.key === "f" || e.key === "F") { e.preventDefault(); fight(); }
       if (e.key === "m" || e.key === "M") { e.preventDefault(); useMagic(); }
     });
+    // Restart after game over / victory (short grace period so a stray tap
+    // right as the screen appears doesn't skip it before the player sees it)
+    function restartGame() {
+      if (Date.now() - endScreenAt < 750) return; // 0.75s grace
+      score = 0; chickensCollected = 0;
+      player.lives = 5; player.weapon = WEAPONS[0]; player.magic = null;
+      player.magicUses = 0; player.arrows = 3; player.thirst = 100;
+      endScreenAt = 0;
+      startLevel(1);
+    }
+
     // Bind both click and touchstart for instant mobile response
     function bindPress(id: string, handler: () => void) {
       const el = document.getElementById(id)!;
@@ -2055,16 +2116,23 @@ export default function Game() {
         handler();
       }, { passive: false });
     }
-    // Intro: any button press also advances past the intro
-    function maybeLeaveIntro() {
+    // Intro: any button press also advances past the intro.
+    // Game over / victory: any button press restarts. Returns true if consumed.
+    function maybeAdvanceScreen(): boolean {
       if (gameState === "intro") {
         startMusic();
         gameState = "playing";
         startLevel(1);
+        return true;
       }
+      if (gameState === "gameOver" || gameState === "victory") {
+        restartGame();
+        return true;
+      }
+      return false;
     }
-    // We want the intro to end on ANY button press too — wrap handlers
-    const wrap = (fn: () => void) => () => { maybeLeaveIntro(); fn(); };
+    // Screen-advance on ANY button press — wrap handlers
+    const wrap = (fn: () => void) => () => { if (!maybeAdvanceScreen()) fn(); };
     bindPress("bu", wrap(() => movePlayer(0, -1)));
     bindPress("bd", wrap(() => movePlayer(0, 1)));
     bindPress("bl", wrap(() => movePlayer(-1, 0)));
@@ -2087,15 +2155,25 @@ export default function Game() {
         if (!musicStarted) startMusic();
       }
     });
-    // Canvas tap: dismiss intro / handle mini-game (existing click listener already wired)
+    // Canvas tap: dismiss intro / restart on end screens (mini-game has its own click listener)
     CV.addEventListener("touchstart", (e) => {
-      if (gameState === "intro") {
+      if (gameState === "intro" || gameState === "gameOver" || gameState === "victory") {
         e.preventDefault();
         startMusic();
-        gameState = "playing";
-        startLevel(1);
+        maybeAdvanceScreen();
       }
     }, { passive: false });
+    // Mouse click on canvas also restarts from end screens (laptop players)
+    CV.addEventListener("click", () => {
+      if (gameState === "gameOver" || gameState === "victory") restartGame();
+    });
+
+    // Hidden debug hook (console-only, not reachable from gameplay)
+    (window as unknown as Record<string, unknown>).__heqDebug = {
+      gameOver: () => { gameState = "gameOver"; endScreenAt = Date.now() - 10000; },
+      victory: () => { gameState = "victory"; endScreenAt = Date.now() - 10000; },
+      state: () => ({ gameState, tick, endScreenAt, level, lives: player.lives }),
+    };
 
     render();
     setMsg("Press any key to begin your quest!");
